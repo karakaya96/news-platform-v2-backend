@@ -47,9 +47,14 @@ load_env()
 # ─────────────────────────────────────────────
 # SSL CONTEXT (ISP proxy / WiFi quirks)
 # ─────────────────────────────────────────────
-_SSL_CTX = ssl.create_default_context()
+_SSL_CTX = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 _SSL_CTX.check_hostname = False
 _SSL_CTX.verify_mode = ssl.CERT_NONE
+# ISP'ler TLS version downgrade yapıyor olabilir - tüm versiyonlara izin ver
+_SSL_CTX.minimum_version = ssl.TLSVersion.TLSv1
+_SSL_CTX.maximum_version = ssl.TLSVersion.MAXIMUM_SUPPORTED
+# Cipher'ları da aç
+_SSL_CTX.set_ciphers('DEFAULT:@SECLEVEL=0')
 
 # ─────────────────────────────────────────────
 # YAPILANDIRMA
