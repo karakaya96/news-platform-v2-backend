@@ -80,6 +80,8 @@ SITE_URL = os.environ.get(
 
 def fetch_page(url: str, timeout: int = 30) -> str:
     """URL'den HTML içerik çeker."""
+    import requests as req_lib
+
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -89,18 +91,29 @@ def fetch_page(url: str, timeout: int = 30) -> str:
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8",
     }
-    req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
-            charset = info_charset(resp.headers) or "utf-8"
-            return resp.read().decode(charset, errors="replace")
-    except urllib.error.HTTPError as e:
-        print(f"  ⚠️ HTTP {e.code}: {e.reason}", file=sys.stderr)
-        if e.code == 403:
+        resp = req_lib.get(url, headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        return resp.text
+    except req_lib.exceptions.SSLError as e:
+        print(f"  ⚠️ SSL Hatası: {e}", file=sys.stderr)
+        if "WRONG_VERSION_NUMBER" in str(e):
+            print("  → ISP/Proxy SSL sorunu. verify=False ile yeniden deneniyor...", file=sys.stderr)
+            try:
+                resp = req_lib.get(url, headers=headers, timeout=timeout, verify=False)
+                resp.raise_for_status()
+                return resp.text
+            except Exception as e2:
+                print(f"  ⚠️ Tekrar deneme de başarısız: {e2}", file=sys.stderr)
+                raise
+        raise
+    except req_lib.exceptions.HTTPError as e:
+        print(f"  ⚠️ HTTP {e.response.status_code}: {e.response.reason}", file=sys.stderr)
+        if e.response.status_code == 403:
             print("  → Site bot koruması var. --dry-run ile test edebilirsin.", file=sys.stderr)
         raise
-    except urllib.error.URLError as e:
-        print(f"  ⚠️ Bağlantı hatası: {e.reason}", file=sys.stderr)
+    except req_lib.exceptions.ConnectionError as e:
+        print(f"  ⚠️ Bağlantı hatası: {e}", file=sys.stderr)
         raise
 
 
@@ -525,34 +538,42 @@ def detect_category(title: str, content: str) -> int:
 
 def create_news_via_api(data: dict, token: str) -> dict:
     """Cloudflare Worker API'sine haber gönderir."""
-    url = f"{API_BASE_URL}/api/news"
-    body = json.dumps(data).encode("utf-8")
+    import requests as req_lib
 
+    url = f"{API_BASE_URL}/api/news"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {token}",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         "Accept": "application/json",
     }
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
 
     try:
-        with urllib.request.urlopen(req, timeout=30, context=_SSL_CTX) as resp:
-            resp_body = resp.read().decode("utf-8")
-            return {"success": True, "data": json.loads(resp_body)}
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="replace")
-        print(f"   [DEBUG] HTTP {e.code} response: {err_body[:300]}", file=sys.stderr)
+        resp = req_lib.post(url, json=data, headers=headers, timeout=30, verify=True)
+        resp.raise_for_status()
+        return {"success": True, "data": resp.json()}
+    except req_lib.exceptions.SSLError as e:
+        print(f"   [DEBUG] SSL Error: {e}", file=sys.stderr)
+        if "WRONG_VERSION_NUMBER" in str(e):
+            print("   ⚠️ ISP/Proxy SSL sorunu. requests verify=False ile yeniden deneniyor...", file=sys.stderr)
+            try:
+                resp = req_lib.post(url, json=data, headers=headers, timeout=30, verify=False)
+                resp.raise_for_status()
+                return {"success": True, "data": resp.json()}
+            except Exception as e2:
+                return {"success": False, "error": str(e2), "status": 0}
+        return {"success": False, "error": str(e), "status": 0}
+    except req_lib.exceptions.HTTPError as e:
+        err_body = e.response.text if e.response is not None else str(e)
+        print(f"   [DEBUG] HTTP {e.response.status_code if e.response else '?'} response: {err_body[:300]}", file=sys.stderr)
         try:
-            err_data = json.loads(err_body)
-            return {"success": False, "error": err_data.get("error", err_body), "status": e.code}
-        except json.JSONDecodeError:
-            return {"success": False, "error": err_body, "status": e.code}
-    except urllib.error.URLError as e:
-        print(f"   [DEBUG] Bağlantı hatası: {e.reason}", file=sys.stderr)
-        if "WRONG_VERSION_NUMBER" in str(e.reason):
-            print("   ⚠️ ISP/Proxy SSL sorunu tespit edildi. VPN kullanmayı dene.", file=sys.stderr)
-        return {"success": False, "error": str(e.reason), "status": 0}
+            err_data = e.response.json() if e.response is not None else {}
+            return {"success": False, "error": err_data.get("error", err_body), "status": e.response.status_code if e.response else 0}
+        except Exception:
+            return {"success": False, "error": err_body, "status": e.response.status_code if e.response else 0}
+    except req_lib.exceptions.ConnectionError as e:
+        print(f"   [DEBUG] Bağlantı hatası: {e}", file=sys.stderr)
+        return {"success": False, "error": str(e), "status": 0}
     except Exception as e:
         print(f"   [DEBUG] Exception: {type(e).__name__}: {e}", file=sys.stderr)
         return {"success": False, "error": str(e), "status": 0}
