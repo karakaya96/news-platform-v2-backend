@@ -14,6 +14,7 @@ import argparse
 import base64
 import json
 import re
+import ssl
 import sys
 import urllib.request
 import urllib.error
@@ -42,6 +43,13 @@ def load_env():
                 os.environ[key] = value
 
 load_env()
+
+# ─────────────────────────────────────────────
+# SSL CONTEXT (ISP proxy / WiFi quirks)
+# ─────────────────────────────────────────────
+_SSL_CTX = ssl.create_default_context()
+_SSL_CTX.check_hostname = False
+_SSL_CTX.verify_mode = ssl.CERT_NONE
 
 # ─────────────────────────────────────────────
 # YAPILANDIRMA
@@ -78,7 +86,7 @@ def fetch_page(url: str, timeout: int = 30) -> str:
     }
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
             charset = info_charset(resp.headers) or "utf-8"
             return resp.read().decode(charset, errors="replace")
     except urllib.error.HTTPError as e:
@@ -524,7 +532,7 @@ def create_news_via_api(data: dict, token: str) -> dict:
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30, context=_SSL_CTX) as resp:
             resp_body = resp.read().decode("utf-8")
             return {"success": True, "data": json.loads(resp_body)}
     except urllib.error.HTTPError as e:
@@ -535,6 +543,11 @@ def create_news_via_api(data: dict, token: str) -> dict:
             return {"success": False, "error": err_data.get("error", err_body), "status": e.code}
         except json.JSONDecodeError:
             return {"success": False, "error": err_body, "status": e.code}
+    except urllib.error.URLError as e:
+        print(f"   [DEBUG] Bağlantı hatası: {e.reason}", file=sys.stderr)
+        if "WRONG_VERSION_NUMBER" in str(e.reason):
+            print("   ⚠️ ISP/Proxy SSL sorunu tespit edildi. VPN kullanmayı dene.", file=sys.stderr)
+        return {"success": False, "error": str(e.reason), "status": 0}
     except Exception as e:
         print(f"   [DEBUG] Exception: {type(e).__name__}: {e}", file=sys.stderr)
         return {"success": False, "error": str(e), "status": 0}
