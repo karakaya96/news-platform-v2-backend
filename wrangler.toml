@@ -6,8 +6,8 @@ compatibility_flags = ["nodejs_compat"]
 # D1 Database
 [[d1_databases]]
 binding = "DB"
-database_name = "news-v2-db"
-database_id = "f6deba79-70ed-43e3-9b91-7fa4f85ddcce"
+database_name = "news-platform-db"
+database_id = "ba28088d-824f-4648-b88b-f532af4f464c"
 
 [vars]
 JWT_SECRET = "h0eZQQvB7mKx9NpL2oR5sT8uW1yZ4aC3dF6gI0jM3nPqRtUwXzAeHkNpQrStUvWxYz01234o58="
