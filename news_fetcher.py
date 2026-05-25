@@ -33,7 +33,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # ─────────────────────────────────────────────
 # Env var ile override edilebilir
 API_BASE_URL = os.environ.get(
-    "NEWS_API_URL", "https://news-platform-api.karakaya-mk96.workers.dev"
+    "NEWS_API_URL", "https://news-v2-api.karakaya-mk96.workers.dev"
 )
 AUTH_TOKEN = os.environ.get("NEWS_AUTH_TOKEN", "")
 SITE_URL = os.environ.get(
