@@ -547,45 +547,76 @@ def detect_category(title: str, content: str) -> int:
 # ─────────────────────────────────────────────
 
 def create_news_via_api(data: dict, token: str) -> dict:
-    """Cloudflare Worker API'sine haber gönderir."""
-    import requests as req_lib
+    """Cloudflare Worker API'sine haber gönderir (curl fallback ile)."""
+    import subprocess
+    import json as json_mod
+    import shutil
 
     url = f"{API_BASE_URL}/api/news"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-    }
+    payload_json = json_mod.dumps(data)
 
+    # Önce requests dene
     try:
-        resp = req_lib.post(url, json=data, headers=headers, timeout=30, verify=True)
+        import requests as req_lib
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        resp = req_lib.post(url, json=data, headers=headers, timeout=30, verify=False)
         resp.raise_for_status()
         return {"success": True, "data": resp.json()}
-    except req_lib.exceptions.SSLError as e:
-        print(f"   [DEBUG] SSL Error: {e}", file=sys.stderr)
-        if "WRONG_VERSION_NUMBER" in str(e):
-            print("   ⚠️ ISP/Proxy SSL sorunu. requests verify=False ile yeniden deneniyor...", file=sys.stderr)
-            try:
-                resp = req_lib.post(url, json=data, headers=headers, timeout=30, verify=False)
-                resp.raise_for_status()
-                return {"success": True, "data": resp.json()}
-            except Exception as e2:
-                return {"success": False, "error": str(e2), "status": 0}
-        return {"success": False, "error": str(e), "status": 0}
-    except req_lib.exceptions.HTTPError as e:
-        err_body = e.response.text if e.response is not None else str(e)
-        print(f"   [DEBUG] HTTP {e.response.status_code if e.response else '?'} response: {err_body[:300]}", file=sys.stderr)
-        try:
-            err_data = e.response.json() if e.response is not None else {}
-            return {"success": False, "error": err_data.get("error", err_body), "status": e.response.status_code if e.response else 0}
-        except Exception:
-            return {"success": False, "error": err_body, "status": e.response.status_code if e.response else 0}
-    except req_lib.exceptions.ConnectionError as e:
-        print(f"   [DEBUG] Bağlantı hatası: {e}", file=sys.stderr)
-        return {"success": False, "error": str(e), "status": 0}
     except Exception as e:
-        print(f"   [DEBUG] Exception: {type(e).__name__}: {e}", file=sys.stderr)
+        print(f"   [DEBUG] requests başarısız ({type(e).__name__}), curl deneniyor...", file=sys.stderr)
+
+    # curl fallback - ISP SSL interception'ı bypass edebilir
+    curl_path = shutil.which("curl")
+    if not curl_path:
+        return {"success": False, "error": "requests başarısız ve curl bulunamadı", "status": 0}
+
+    try:
+        result = subprocess.run(
+            [
+                curl_path, "-s", "-X", "POST",
+                url,
+                "-H", "Content-Type: application/json",
+                "-H", f"Authorization: Bearer {token}",
+                "-H", "Accept: application/json",
+                "-d", payload_json,
+                "--max-time", "30",
+                "-w", "\n%{http_code}",
+            ],
+            capture_output=True, text=True, timeout=35
+        )
+        output = result.stdout.strip()
+        stderr = result.stderr.strip()
+
+        # Son satırda HTTP status var
+        lines = output.rsplit("\n", 1)
+        if len(lines) == 2:
+            body_str, status_str = lines
+            http_status = int(status_str) if status_str.isdigit() else 0
+        else:
+            body_str = output
+            http_status = 0
+
+        if stderr:
+            print(f"   [DEBUG] curl stderr: {stderr[:200]}", file=sys.stderr)
+
+        try:
+            body = json_mod.loads(body_str)
+        except json_mod.JSONDecodeError:
+            return {"success": False, "error": f"Invalid JSON: {body_str[:200]}", "status": http_status}
+
+        if http_status >= 200 and http_status < 300:
+            return {"success": True, "data": body}
+        else:
+            return {"success": False, "error": body.get("error", body_str[:200]), "status": http_status}
+
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "curl timeout", "status": 0}
+    except Exception as e:
+        print(f"   [DEBUG] curl hatası: {type(e).__name__}: {e}", file=sys.stderr)
         return {"success": False, "error": str(e), "status": 0}
 
 
