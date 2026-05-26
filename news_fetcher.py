@@ -26,7 +26,7 @@ from pathlib import Path
 
 # SSL/TLS deprecation ve insecure request uyarılarını sustur
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*TLSv1.*")
-warnings.filterwarnings("ignore", category=DeprecationMessage)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*Unverified HTTPS.*")
 
 try:
