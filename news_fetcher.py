@@ -211,9 +211,170 @@ def extract_image(html: str) -> str | None:
     return None
 
 
+def extract_images(html: str, base_url: str = "") -> list[str]:
+    """Sayfadaki anlamlı içerik fotoğraflarını çıkarır.
+    
+    Küçük icon, logo, avatar gibi öğeleri filtreler.
+    Birden fazla bulursa en büyük olanları döndürür (max 5).
+    """
+    all_urls: list[str] = []
+
+    # 1. Tüm <img src="..."> tag'lerini bul
+    for m in re.finditer(r'<img[^>]+src="([^"]+)"', html, re.IGNORECASE):
+        url = _resolve_url(m.group(1).strip(), base_url)
+        if url and _is_content_image(url, html):
+            all_urls.append(url)
+
+    # 2. srcset içinden en büyük URL'yi al
+    for m in re.finditer(r'<img[^>]+srcset="([^"]+)"', html, re.IGNORECASE):
+        parts = [s.strip() for s in m.group(1).split(",")]
+        for part in reversed(parts):
+            url_part = part.split()[0].strip() if part.split() else ""
+            url = _resolve_url(url_part, base_url)
+            if url and _is_content_image(url, html) and url not in all_urls:
+                all_urls.append(url)
+                break
+
+    # 3. data-src (lazy loading)
+    for m in re.finditer(r'<img[^>]+data-src="([^"]+)"', html, re.IGNORECASE):
+        url = _resolve_url(m.group(1).strip(), base_url)
+        if url and _is_content_image(url, html) and url not in all_urls:
+            all_urls.append(url)
+
+    # 4. data-original (başka lazy loading pattern)
+    for m in re.finditer(r'<img[^>]+data-original="([^"]+)"', html, re.IGNORECASE):
+        url = _resolve_url(m.group(1).strip(), base_url)
+        if url and _is_content_image(url, html) and url not in all_urls:
+            all_urls.append(url)
+
+    # Duplikat kaldır ve max 5 döndür
+    seen: list[str] = []
+    for u in all_urls:
+        if u not in seen:
+            seen.append(u)
+        if len(seen) >= 5:
+            break
+
+    return seen
+
+
+def _resolve_url(src: str, base_url: str) -> str | None:
+    """Relative URL'yi absolute'a çevirir."""
+    if not src or src.startswith("data:"):
+        return None
+    if src.startswith("//"):
+        return "https:" + src
+    if src.startswith("http://") or src.startswith("https://"):
+        return src
+    if base_url:
+        from urllib.parse import urljoin
+        return urljoin(base_url, src)
+    return None
+
+
+def _is_content_image(url: str, html: str = "") -> bool:
+    """URL'nin içerik fotoğrafı olup olmadığını kontrol eder."""
+    url_lower = url.lower()
+
+    # Hariç tutulan pattern'lar
+    skip_keywords = [
+        "logo", "icon", "avatar", "button", "sprite", "advert",
+        "banner", "pixel", "tracker", "placeholder", "loading",
+        "emoji", "favicon", "apple-touch", "android-chrome",
+        "gravatar", "social", "share-", "rating", "star.",
+        "badge", "arrow", "close.", "menu.", "nav.",
+        "featured-image-small", "thumbnail-small",
+    ]
+    for kw in skip_keywords:
+        if kw in url_lower:
+            return False
+
+    # SVG genelde icon
+    if url_lower.endswith(".svg"):
+        return False
+
+    # URL'den boyut kontrolü (örn: image-800x600.jpg)
+    dim_match = re.search(r"(\d+)x(\d+)", url_lower)
+    if dim_match:
+        w, h = int(dim_match.group(1)), int(dim_match.group(2))
+        if w < 150 or h < 100:
+            return False
+
+    # Geçerli image uzantıları
+    if not re.search(r"\.(jpg|jpeg|png|webp|gif)(\?|$)", url_lower):
+        return False
+
+    # HTML'den img tag boyut kontrolü
+    if html:
+        img_tag_match = re.search(
+            r'<img[^>]+src="' + re.escape(url) + r'"[^>]*>',
+            html, re.IGNORECASE
+        )
+        if img_tag_match:
+            tag = img_tag_match.group(0)
+            w_m = re.search(r'width="?(\d+)', tag)
+            h_m = re.search(r'height="?(\d+)', tag)
+            if w_m and h_m:
+                w, h = int(w_m.group(1)), int(h_m.group(1))
+                if w < 120 or h < 80:
+                    return False
+            class_m = re.search(r'class="([^"]*)"', tag)
+            if class_m:
+                cls = class_m.group(1).lower()
+                if any(k in cls for k in ["icon", "logo", "avatar", "thumb", "small"]):
+                    return False
+
+    return True
+
+
+def _embed_images_in_content(content: str, images: list[str]) -> str:
+    """İçerik fotoğraflarını metin paragrafları arasına yerleştirir.
+    
+    Fotoğrafları metnin uzunluğuna göre eşit aralıklarla dağıtır.
+    Her fotoğraf <img> HTML tag'i olarak eklenir.
+    """
+    if not images or not content:
+        return content
+
+    # Paragraflara böl
+    paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+    if len(paragraphs) < 2:
+        # Tek paragraf varsa sonuna ekle
+        img_html = "\n\n".join(
+            f'<img src="{u}" alt="Haber görseli" style="max-width:100%;border-radius:8px;margin:16px 0;" />'
+            for u in images
+        )
+        return content + "\n\n" + img_html
+
+    # Fotoğrafları paragraflar arasına dağıt
+    num_images = len(images)
+    num_paragraphs = len(paragraphs)
+
+    # Eşit aralıklarla yerleştir
+    if num_images == 1:
+        # Tek fotoğraf → %40 noktasına
+        insert_pos = max(1, int(num_paragraphs * 0.4))
+        img_html = f'\n\n<img src="{images[0]}" alt="Haber görseli" style="max-width:100%;border-radius:8px;margin:16px 0;" />\n\n'
+        paragraphs.insert(insert_pos, img_html)
+    elif num_images == 2:
+        # İki fotoğraf → %30 ve %60
+        positions = [int(num_paragraphs * 0.3), int(num_paragraphs * 0.6)]
+        for i, pos in enumerate(positions):
+            img_html = f'\n\n<img src="{images[i]}" alt="Haber görseli" style="max-width:100%;border-radius:8px;margin:16px 0;" />\n\n'
+            paragraphs.insert(pos + i, img_html)  # +i çünkü önceki ekleme offset yaratır
+    else:
+        # 3+ fotoğraf → eşit dağıtım
+        step = num_paragraphs / (num_images + 1)
+        for i in range(num_images):
+            pos = int(step * (i + 1)) + i  # +i offset
+            pos = min(pos, len(paragraphs))
+            img_html = f'\n\n<img src="{images[i]}" alt="Haber görseli" style="max-width:100%;border-radius:8px;margin:16px 0;" />\n\n'
+            paragraphs.insert(pos, img_html)
+
+    return "\n\n".join(paragraphs)
+
+
 def extract_content(html: str, url: str = "") -> str:
-    """Haber metnini çıkarır — readability-lxml + fallback."""
-    from readability import Document
 
     # 1. Readability ile dene (en stabil)
     try:
@@ -745,9 +906,15 @@ def main():
     title = extract_title(html)
     description = extract_description(html)
     image_url = extract_image(html)
+    content_images = extract_images(html, base_url=args.url)
     content = extract_content(html, url=args.url)
     videos = detect_videos(html)
     videos = deduplicate_videos(videos)
+
+    # İçerik fotoğraflarını metne yerleştir
+    if content_images:
+        content = _embed_images_in_content(content, content_images)
+        print(f"   📸 {len(content_images)} içerik fotoğrafı eklendi")
 
     # SEO
     seo = generate_seo(title, description, content)
