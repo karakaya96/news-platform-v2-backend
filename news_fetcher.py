@@ -97,6 +97,16 @@ def fetch_page(url: str, timeout: int = 30) -> str:
         return resp.text
     except req_lib.exceptions.SSLError as e:
         print(f"  ⚠️ SSL Hatası: {e}", file=sys.stderr)
+        print("  → verify=False ile yeniden deneniyor...", file=sys.stderr)
+        try:
+            resp = req_lib.get(url, headers=headers, timeout=timeout, verify=False)
+            resp.raise_for_status()
+            return resp.text
+        except Exception as e2:
+            print(f"  ⚠️ Tekrar deneme de başarısız: {e2}", file=sys.stderr)
+            raise
+    except req_lib.exceptions.ConnectionError as e:
+        print(f"  ⚠️ Bağlantı hatası: {e}", file=sys.stderr)
         if "WRONG_VERSION_NUMBER" in str(e):
             print("  → ISP/Proxy SSL sorunu. verify=False ile yeniden deneniyor...", file=sys.stderr)
             try:
@@ -112,8 +122,8 @@ def fetch_page(url: str, timeout: int = 30) -> str:
         if e.response.status_code == 403:
             print("  → Site bot koruması var. --dry-run ile test edebilirsin.", file=sys.stderr)
         raise
-    except req_lib.exceptions.ConnectionError as e:
-        print(f"  ⚠️ Bağlantı hatası: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"  ⚠️ Beklenmeyen hata: {type(e).__name__}: {e}", file=sys.stderr)
         raise
 
 
@@ -679,8 +689,9 @@ def main():
 
     try:
         html = fetch_page(args.url)
-    except Exception:
-        print("❌ Sayfa indirilemedi!")
+    except Exception as e:
+        print(f"❌ Sayfa indirilemedi!")
+        print(f"   Hata: {type(e).__name__}: {e}")
         sys.exit(1)
 
     print(f"   ✅ {len(html):,} karakter indirildi")
