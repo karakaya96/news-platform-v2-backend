@@ -21,7 +21,19 @@ import urllib.error
 import urllib.parse
 import html as html_lib
 import os
+import warnings
 from pathlib import Path
+
+# SSL/TLS deprecation ve insecure request uyarılarını sustur
+warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*TLSv1.*")
+warnings.filterwarnings("ignore", category=DeprecationMessage)
+warnings.filterwarnings("ignore", message=".*Unverified HTTPS.*")
+
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except ImportError:
+    pass
 
 # ─────────────────────────────────────────────
 # .ENV YÜKLEME
