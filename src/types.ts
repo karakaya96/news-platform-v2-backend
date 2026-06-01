@@ -160,4 +160,50 @@ export interface Bindings {
   R2: R2Bucket;
   JWT_SECRET: string;
   CORS_ORIGIN: string;
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
+}
+
+// Subscription types
+export interface Subscription {
+  id: number;
+  type: 'browser' | 'email';
+  endpoint: string | null;
+  p256dh: string | null;
+  auth: string | null;
+  email: string | null;
+  categories: string; // JSON array
+  is_active: number;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubscriptionWithCategories extends Omit<Subscription, 'categories'> {
+  categories: string[];
+}
+
+export interface CreateSubscriptionDto {
+  type: 'browser' | 'email';
+  endpoint?: string;
+  p256dh?: string;
+  auth?: string;
+  email?: string;
+  categories?: string[];
+}
+
+export interface NotificationLog {
+  id: number;
+  subscription_id: number | null;
+  type: 'browser' | 'email';
+  title: string;
+  body: string;
+  url: string | null;
+  news_id: number | null;
+  status: 'pending' | 'sent' | 'failed';
+  error_message: string | null;
+  created_at: string;
+  sent_at: string | null;
 }
