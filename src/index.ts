@@ -162,7 +162,7 @@ export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: Execu
     }
   }
 
-  // 2. Process pending email notifications (send via external service)
+  // 2. Process pending email notifications (send via relay)
   const pendingEmails = await db.prepare(`
     SELECT nl.*, s.email
     FROM notification_log nl
@@ -172,20 +172,40 @@ export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: Execu
     LIMIT 10
   `).all();
 
+  const relayUrl = env.SMTP_RELAY_URL || '';
+  const relaySecret = env.SMTP_RELAY_SECRET || '';
+
   for (const notif of (pendingEmails.results || []) as any[]) {
     try {
-      // Send email via a simple approach - log it for now
-      // In production, you'd use Mailgun, SendGrid, etc.
-      console.log(`Would send email to ${notif.email}: ${notif.title}`);
-      
-      // Mark as sent (in real implementation, check email API response)
-      await db.prepare(`
-        UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?
-      `).bind(notif.id).run();
+      if (!relayUrl) {
+        console.log('SMTP_RELAY_URL not configured, skipping');
+        continue;
+      }
+
+      const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(notif.email)}`;
+      const res = await fetch(relayUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          secret: relaySecret,
+          to: notif.email,
+          subject: notif.title,
+          html: `<h2>${notif.title}</h2><p>${notif.body || ''}</p><a href="${notif.url}">Haberi Oku →</a>`,
+          unsubscribeUrl,
+        }),
+      });
+
+      if (res.ok) {
+        await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notif.id).run();
+        console.log(`✅ Pending email sent to ${notif.email}: ${notif.title}`);
+      } else {
+        const errText = await res.text();
+        await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(errText, notif.id).run();
+        console.error(`❌ Pending email failed for ${notif.email}: ${errText}`);
+      }
     } catch (err) {
-      await db.prepare(`
-        UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?
-      `).bind(String(err), notif.id).run();
+      await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), notif.id).run();
+      console.error(`❌ Pending email error for ${notif.email}:`, err);
     }
   }
 
