@@ -61,7 +61,11 @@ export default app;
 // Cron scheduled handler - runs every 5 minutes to send pending notifications
 export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
   const db = env.DB;
+  console.log('🔔 CRON START');
   
+  // Debug: count total published news
+  const debugCount = await db.prepare(`SELECT COUNT(*) as cnt FROM news WHERE status = 'published'`).first();
+  console.log('📊 Total published news:', debugCount?.cnt);
   // 1. Find recently published news that hasn't been notified yet
   const recentlyPublished = await db.prepare(`
     SELECT n.id, n.title, n.slug, n.excerpt, n.category_id, n.published_at, c.slug as category_slug
