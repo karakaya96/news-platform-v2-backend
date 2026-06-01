@@ -72,7 +72,7 @@ export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: Execu
     FROM news n
     LEFT JOIN categories c ON n.category_id = c.id
     WHERE n.status = 'published'
-    AND n.published_at > datetime('now', '-10 minutes')
+    AND n.published_at > datetime('now', '-60 minutes')
     AND n.published_at <= datetime('now')
     AND NOT EXISTS (
       SELECT 1 FROM notification_log nl WHERE nl.news_id = n.id
