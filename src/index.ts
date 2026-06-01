@@ -57,3 +57,106 @@ app.notFound((c) => {
 });
 
 export default app;
+
+// Cron scheduled handler - runs every 5 minutes to send pending notifications
+export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
+  const db = env.DB;
+  
+  // 1. Find recently published news that hasn't been notified yet
+  const recentlyPublished = await db.prepare(`
+    SELECT n.id, n.title, n.slug, n.excerpt, n.category_id, n.published_at, c.slug as category_slug
+    FROM news n
+    LEFT JOIN categories c ON n.category_id = c.id
+    WHERE n.status = 'published'
+    AND n.published_at > datetime('now', '-10 minutes')
+    AND n.published_at <= datetime('now')
+    AND NOT EXISTS (
+      SELECT 1 FROM notification_log nl WHERE nl.news_id = n.id
+    )
+    ORDER BY n.published_at DESC
+    LIMIT 5
+  `).all();
+
+  const newsItems = recentlyPublished.results || [];
+
+  for (const news of newsItems as any[]) {
+    // Get active subscriptions for this category
+    const subs = await db.prepare(`
+      SELECT * FROM subscriptions 
+      WHERE is_active = 1 
+      AND (categories = '[]' OR categories LIKE ?)
+    `).bind(`%${news.category_slug}%`).all();
+
+    const subscriptions = subs.results || [];
+    const siteUrl = 'https://newshaberglobal.vercel.app';
+    const newsUrl = `${siteUrl}/news/${news.slug}`;
+
+    for (const sub of subscriptions as any[]) {
+      // Browser push notification
+      if (sub.type === 'browser' && sub.endpoint && sub.p256dh && sub.auth) {
+        try {
+          // For now, log the notification (actual push needs web-push library)
+          await db.prepare(`
+            INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
+            VALUES (?, 'browser', ?, ?, ?, ?, 'sent')
+          `).bind(
+            sub.id,
+            `📰 ${news.title}`,
+            news.excerpt || 'Yeni haberi okumak için tıklayın',
+            newsUrl,
+            news.id
+          ).run();
+        } catch (err) {
+          console.error('Browser notification error:', err);
+        }
+      }
+
+      // Email notification
+      if (sub.type === 'email' && sub.email) {
+        try {
+          await db.prepare(`
+            INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
+            VALUES (?, 'email', ?, ?, ?, ?, 'pending')
+          `).bind(
+            sub.id,
+            `📰 ${news.title}`,
+            news.excerpt || 'Yeni haberi okumak için tıklayın',
+            newsUrl,
+            news.id
+          ).run();
+        } catch (err) {
+          console.error('Email notification error:', err);
+        }
+      }
+    }
+  }
+
+  // 2. Process pending email notifications (send via external service)
+  const pendingEmails = await db.prepare(`
+    SELECT nl.*, s.email
+    FROM notification_log nl
+    JOIN subscriptions s ON nl.subscription_id = s.id
+    WHERE nl.status = 'pending' AND nl.type = 'email'
+    ORDER BY nl.created_at ASC
+    LIMIT 10
+  `).all();
+
+  for (const notif of (pendingEmails.results || []) as any[]) {
+    try {
+      // Send email via a simple approach - log it for now
+      // In production, you'd use Mailgun, SendGrid, etc.
+      console.log(`Would send email to ${notif.email}: ${notif.title}`);
+      
+      // Mark as sent (in real implementation, check email API response)
+      await db.prepare(`
+        UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?
+      `).bind(notif.id).run();
+    } catch (err) {
+      await db.prepare(`
+        UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?
+      `).bind(String(err), notif.id).run();
+    }
+  }
+
+  console.log(`Cron: processed ${newsItems.length} new articles, ${(pendingEmails.results || []).length} pending emails`);
+}

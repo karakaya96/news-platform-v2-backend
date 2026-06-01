@@ -15,3 +15,7 @@ CORS_ORIGIN = "*"
 VAPID_PUBLIC_KEY = "BJw-hAa4p86NtwMCwH0cbGdVYouRKaok1VTKXVj63jqrzElSTwJOzg7r8kcRHEo6CIS0VyFOzrUsx15GuLewroI"
 VAPID_PRIVATE_KEY = "uSzixBjdjkrtEiccFpaHIgNfhYnLHMwYf9o7CdKGA-E"
 VAPID_SUBJECT = "mailto:admin@newsplatform.com"
+
+# Cron trigger - every 5 minutes
+[triggers]
+crons = ["*/5 * * * *"]
