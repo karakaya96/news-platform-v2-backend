@@ -51,6 +51,105 @@ app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/comments', commentRoutes);
 app.route('/api/subscribe', subscriptionRoutes);
 
+// Test cron endpoint (manual trigger)
+app.get('/api/test-cron', async (c) => {
+  const db = c.env.DB as any;
+  const siteUrl = 'https://newshaberglobal.vercel.app';
+  const results: string[] = [];
+
+  // 1. Find recently published news
+  const recentlyPublished = await db.prepare(`
+    SELECT n.id, n.title, n.slug, n.excerpt, n.category_id, n.published_at, c.slug as category_slug
+    FROM news n
+    LEFT JOIN categories c ON n.category_id = c.id
+    WHERE n.status = 'published'
+    AND n.published_at > datetime('now', '-60 minutes')
+    AND n.published_at <= datetime('now')
+    AND NOT EXISTS (
+      SELECT 1 FROM notification_log nl WHERE nl.news_id = n.id
+    )
+    ORDER BY n.published_at DESC
+    LIMIT 5
+  `).all();
+
+  const newsItems = recentlyPublished.results || [];
+  results.push(`Found ${newsItems.length} unnotified news in last 60 min`);
+
+  for (const news of newsItems as any[]) {
+    const subs = await db.prepare(`
+      SELECT * FROM subscriptions
+      WHERE is_active = 1
+      AND (categories = '[]' OR categories LIKE ?)
+    `).bind(`%${news.category_slug}%`).all();
+
+    const subscriptions = subs.results || [];
+    results.push(`News: "${news.title}" (cat: ${news.category_slug}) → ${subscriptions.length} subscribers`);
+
+    for (const sub of subscriptions as any[]) {
+      if (sub.type === 'email' && sub.email) {
+        const notifId = await db.prepare(`
+          INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
+          VALUES (?, 'email', ?, ?, ?, ?, 'pending')
+        `).bind(
+          sub.id,
+          `📰 ${news.title}`,
+          news.excerpt || 'Yeni haberi okumak için tıklayın',
+          `${siteUrl}/news/${news.slug}`,
+          news.id
+        ).run();
+
+        const relayUrl = (c.env as any).SMTP_RELAY_URL || '';
+        const relaySecret = (c.env as any).SMTP_RELAY_SECRET || '';
+
+        if (relayUrl) {
+          try {
+            const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(sub.email)}`;
+            const res = await fetch(relayUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                secret: relaySecret,
+                to: sub.email,
+                subject: `📰 ${news.title}`,
+                html: `<h2>${news.title}</h2><p>${news.excerpt || ''}</p><a href="${siteUrl}/news/${news.slug}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Haberi Oku →</a>`,
+                unsubscribeUrl,
+              }),
+            });
+
+            if (res.ok) {
+              await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notifId.meta.last_row_id).run();
+              results.push(`✅ Email sent to ${sub.email}`);
+            } else {
+              const errText = await res.text();
+              await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(errText, notifId.meta.last_row_id).run();
+              results.push(`❌ Failed for ${sub.email}: ${errText}`);
+            }
+          } catch (err: any) {
+            await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), notifId.meta.last_row_id).run();
+            results.push(`❌ Error for ${sub.email}: ${err.message}`);
+          }
+        } else {
+          results.push(`⚠️ No relay URL configured`);
+        }
+      }
+    }
+  }
+
+  // 2. Process pending emails
+  const pendingEmails = await db.prepare(`
+    SELECT nl.*, s.email
+    FROM notification_log nl
+    JOIN subscriptions s ON nl.subscription_id = s.id
+    WHERE nl.status = 'pending' AND nl.type = 'email'
+    ORDER BY nl.created_at ASC
+    LIMIT 10
+  `).all();
+
+  results.push(`Pending emails: ${(pendingEmails.results || []).length}`);
+
+  return c.json({ success: true, results });
+});
+
 // 404 handler
 app.notFound((c) => {
   return Response.json({ success: false, error: 'Not found' }, { status: 404 });
