@@ -60,6 +60,34 @@ export interface NewsTag {
   tag_id: number;
 }
 
+export interface Comment {
+  id: number;
+  news_id: number;
+  parent_id: number | null;
+  author_name: string;
+  author_email: string;
+  content: string;
+  status: 'pending' | 'approved' | 'rejected' | 'spam';
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  updated_at: string;
+  reply_count?: number;
+}
+
+export interface CommentWithNews extends Comment {
+  news_title?: string;
+  news_slug?: string;
+}
+
+export interface CreateCommentDto {
+  news_id: number;
+  parent_id?: number | null;
+  author_name: string;
+  author_email: string;
+  content: string;
+}
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
@@ -82,6 +110,7 @@ export interface PaginationQuery {
 export interface JwtPayload {
   sub: number;
   email: string;
+  name?: string;
   role: string;
   iat?: number;
   exp?: number;

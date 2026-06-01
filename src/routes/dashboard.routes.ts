@@ -53,11 +53,16 @@ dashboardRoutes.get('/stats', authMiddleware, async (c) => {
     .prepare("SELECT COUNT(*) as count FROM news WHERE status = 'draft'")
     .first<{ count: number }>();
 
+  const pendingComments = await db
+    .prepare("SELECT COUNT(*) as count FROM comments WHERE status = 'pending'")
+    .first<{ count: number }>();
+
   return success({
     totalNews: totalNews?.count || 0,
     totalCategories: totalCategories?.count || 0,
     publishedCount: publishedCount?.count || 0,
     draftCount: draftCount?.count || 0,
+    pendingComments: pendingComments?.count || 0,
     recentNews: recentNews.results || [],
     categoryDistribution: categoryDistribution.results || [],
   });

@@ -7,6 +7,7 @@ import categoryRoutes from './routes/category.routes';
 import authRoutes from './routes/auth.routes';
 import uploadRoutes from './routes/upload.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import commentRoutes from './routes/comment.routes';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -46,6 +47,7 @@ app.route('/api/categories', categoryRoutes);
 app.route('/api/auth', authRoutes);
 app.route('/api/upload', uploadRoutes);
 app.route('/api/dashboard', dashboardRoutes);
+app.route('/api/comments', commentRoutes);
 
 // 404 handler
 app.notFound((c) => {
