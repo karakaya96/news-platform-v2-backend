@@ -163,6 +163,8 @@ export interface Bindings {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
+  SMTP_RELAY_URL?: string;
+  SMTP_RELAY_SECRET?: string;
 }
 
 // Subscription types

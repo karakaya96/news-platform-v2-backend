@@ -111,10 +111,10 @@ export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: Execu
         }
       }
 
-      // Email notification
+      // Email notification - create log and send via relay
       if (sub.type === 'email' && sub.email) {
         try {
-          await db.prepare(`
+          const notifId = await db.prepare(`
             INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
             VALUES (?, 'email', ?, ?, ?, ?, 'pending')
           `).bind(
@@ -124,6 +124,37 @@ export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: Execu
             newsUrl,
             news.id
           ).run();
+
+          // Send via relay server (fire and forget)
+          const relayUrl = env.SMTP_RELAY_URL || '';
+          const relaySecret = env.SMTP_RELAY_SECRET || '';
+          if (relayUrl) {
+            const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(sub.email)}`;
+            fetch(relayUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                secret: relaySecret,
+                to: sub.email,
+                subject: `📰 ${news.title}`,
+                html: `
+                  <h2 style="color: #1e293b; font-size: 20px; margin-bottom: 10px;">${news.title}</h2>
+                  <p style="color: #64748b; font-size: 14px; line-height: 1.6;">${news.excerpt || ''}</p>
+                  <a href="${newsUrl}" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; margin-top: 15px;">Haberi Oku →</a>
+                `,
+                unsubscribeUrl,
+              }),
+            }).then(async (res) => {
+              if (res.ok) {
+                await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notifId.meta.last_row_id).run();
+              } else {
+                const errText = await res.text();
+                await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(errText, notifId.meta.last_row_id).run();
+              }
+            }).catch(async (err) => {
+              await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), notifId.meta.last_row_id).run();
+            });
+          }
         } catch (err) {
           console.error('Email notification error:', err);
         }
