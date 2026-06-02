@@ -12,7 +12,28 @@ const categoryRoutes = new Hono<{ Bindings: Bindings }>();
 categoryRoutes.get('/', async (c) => {
   const service = new CategoryService(c.env.DB);
   const categories = await service.getAllCategories();
-  return success(categories);
+  // Add article count for each category
+  const categoriesWithCount = await Promise.all(
+    categories.map(async (cat) => {
+      const countResult = await c.env.DB
+        .prepare('SELECT COUNT(*) as count FROM news WHERE category_id = ?')
+        .bind(cat.id)
+        .first<{ count: number }>();
+      return { ...cat, article_count: countResult?.count || 0 };
+    })
+  );
+  return success(categoriesWithCount);
+});
+
+// GET /api/categories/id/:id - Get category by ID (admin)
+categoryRoutes.get('/id/:id', async (c) => {
+  const id = parseInt(c.req.param('id'));
+  const service = new CategoryService(c.env.DB);
+  const category = await service.getCategoryById(id);
+  if (!category) {
+    return error('Category not found', 404);
+  }
+  return success(category);
 });
 
 // GET /api/categories/:slug - Public, with news

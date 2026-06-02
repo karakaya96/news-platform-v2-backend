@@ -18,6 +18,13 @@ export class CategoryService {
       .first<Category>();
   }
 
+  async getCategoryById(id: number): Promise<Category | null> {
+    return this.db
+      .prepare('SELECT * FROM categories WHERE id = ?')
+      .bind(id)
+      .first<Category>();
+  }
+
   async createCategory(data: {
     name: string;
     slug?: string;
