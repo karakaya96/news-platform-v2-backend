@@ -24,13 +24,15 @@ export class SubscriptionService {
     }
 
     if (data.type === 'email' && data.email) {
+      // Check for ANY existing subscription (active or inactive)
       const existing = await this.db
-        .prepare('SELECT id FROM subscriptions WHERE type = ? AND email = ? AND is_active = 1')
+        .prepare('SELECT id, is_active FROM subscriptions WHERE type = ? AND email = ? ORDER BY id DESC LIMIT 1')
         .bind('email', data.email.toLowerCase())
-        .first();
+        .first<{ id: number; is_active: number }>();
       if (existing) {
+        // Reactivate if inactive, update categories
         await this.db
-          .prepare('UPDATE subscriptions SET categories = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .prepare('UPDATE subscriptions SET categories = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
           .bind(categories, existing.id)
           .run();
         return this.getSubscriptionById(existing.id) as Promise<Subscription>;
@@ -101,9 +103,10 @@ export class SubscriptionService {
   }
 
   // Unsubscribe by email (for email unsubscribe link)
+  // Also reactivates if already inactive (idempotent)
   async unsubscribeByEmail(email: string): Promise<boolean> {
     const result = await this.db
-      .prepare('UPDATE subscriptions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE type = ? AND email = ?')
+      .prepare('UPDATE subscriptions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE type = ? AND email = ? AND is_active = 1')
       .bind('email', email.toLowerCase())
       .run();
     return result.meta.changes > 0;

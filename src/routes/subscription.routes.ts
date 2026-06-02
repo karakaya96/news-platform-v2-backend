@@ -49,27 +49,41 @@ subscriptionRoutes.post('/', async (c) => {
 
   const service = new SubscriptionService(c.env.DB);
 
-  // Check if already subscribed (active)
-  let alreadySubscribed = false;
+  // Check if email already exists (any status) before creating
+  let existingStatus: 'active' | 'inactive' | 'none' = 'none';
   if (data.type === 'email' && data.email) {
     const existing = await c.env.DB
-      .prepare('SELECT id FROM subscriptions WHERE type = ? AND email = ? AND is_active = 1')
+      .prepare('SELECT is_active FROM subscriptions WHERE type = ? AND email = ? ORDER BY id DESC LIMIT 1')
       .bind('email', data.email.toLowerCase())
-      .first();
-    if (existing) alreadySubscribed = true;
-  }
-  if (data.type === 'browser' && data.endpoint) {
-    const existing = await c.env.DB
-      .prepare('SELECT id FROM subscriptions WHERE type = ? AND endpoint = ? AND is_active = 1')
-      .bind('browser', data.endpoint)
-      .first();
-    if (existing) alreadySubscribed = true;
+      .first<{ is_active: number }>();
+    if (existing) {
+      existingStatus = existing.is_active === 1 ? 'active' : 'inactive';
+    }
   }
 
   const subscription = await service.createSubscription(data as any);
 
-  // Only send confirmation email for NEW subscriptions
-  if (data.type === 'email' && data.email && !alreadySubscribed) {
+  // Determine message and whether to send confirmation email
+  let message: string;
+  let sendConfirmationEmail = false;
+
+  if (existingStatus === 'active') {
+    // Already active — duplicate subscription attempt
+    message = 'Bu e-posta adresi zaten abone.';
+  } else if (existingStatus === 'inactive') {
+    // Was inactive, now reactivated
+    message = 'Aboneliğiniz yeniden aktif edildi!';
+    sendConfirmationEmail = true;
+  } else {
+    // Brand new subscription
+    message = data.type === 'browser'
+      ? 'Bildirim aboneliği başarıyla oluşturuldu!'
+      : 'E-posta aboneliği başarıyla oluşturuldu!';
+    sendConfirmationEmail = true;
+  }
+
+  // Send confirmation email for new or reactivated subscriptions
+  if (data.type === 'email' && data.email && sendConfirmationEmail) {
     const siteUrl = 'https://newshaberglobal.vercel.app';
     const relayUrl = c.env.SMTP_RELAY_URL || '';
     const relaySecret = c.env.SMTP_RELAY_SECRET || '';
@@ -126,17 +140,13 @@ subscriptionRoutes.post('/', async (c) => {
   }
 
   return success({
-    message: alreadySubscribed
-      ? 'Bu e-posta adresi zaten abone.'
-      : data.type === 'browser'
-        ? 'Bildirim aboneliği başarıyla oluşturuldu!'
-        : 'E-posta aboneliği başarıyla oluşturuldu!',
+    message,
     subscription: {
       id: subscription.id,
       type: subscription.type,
       categories: JSON.parse(subscription.categories || '[]'),
     },
-  }, alreadySubscribed ? 200 : 201);
+  }, existingStatus === 'active' ? 200 : 201);
 });
 
 // POST /api/subscribe/unsubscribe - Unsubscribe
@@ -156,11 +166,25 @@ subscriptionRoutes.post('/unsubscribe', async (c) => {
 
   // Email unsubscribe
   if (body.email) {
+    // Check if subscription exists (any status)
+    const existing = await c.env.DB
+      .prepare('SELECT is_active FROM subscriptions WHERE type = ? AND email = ? ORDER BY id DESC LIMIT 1')
+      .bind('email', body.email.toLowerCase())
+      .first<{ is_active: number }>();
+
+    if (!existing) {
+      return error('Bu e-posta adresiyle bir abonelik bulunamadı', 404);
+    }
+
+    if (existing.is_active === 0) {
+      return success({ message: 'Aboneliğiniz zaten iptal edilmiş' });
+    }
+
     const result = await service.unsubscribeByEmail(body.email);
     if (result) {
       return success({ message: 'E-posta aboneliği iptal edildi' });
     }
-    return error('Abonelik bulunamadı', 404);
+    return error('Abonelik iptal edilemedi', 500);
   }
 
   return error('Endpoint veya e-posta gerekli', 400);
