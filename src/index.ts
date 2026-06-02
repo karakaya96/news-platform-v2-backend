@@ -130,6 +130,19 @@ app.get('/api/admin/trigger-cron', async (c) => {
             results.push(`  ❌ Error: ${err.message}`);
           }
         }
+      } else if (sub.type === 'browser') {
+        // Create browser push notification log (pending)
+        const notifResult = await db.prepare(`
+          INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
+          VALUES (?, 'browser', ?, ?, ?, ?, 'pending')
+        `).bind(
+          sub.id, news.title,
+          news.excerpt || 'Yeni haberi okumak için tıklayın',
+          `${siteUrl}/news/${news.slug}`, news.id
+        ).run();
+
+        const lastId = notifResult.meta?.last_row_id;
+        results.push(`  🔔 Browser notif #${lastId} created for endpoint ${sub.endpoint?.substring(0, 40)}...`);
       }
     }
   }
@@ -145,14 +158,14 @@ app.notFound((c) => {
 export default app;
 
 // Cron scheduled handler - runs every 5 minutes
-// Primary job: process pending/failed email retries. New-publish notifications are triggered instantly from POST/PUT news endpoints.
-export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
+// Primary job: process pending/failed email + browser push notifications
+export async function scheduled(event: any, env: any, ctx: any) {
   const db = env.DB;
   const siteUrl = 'https://newshaberglobal.vercel.app';
   const relayUrl = env.SMTP_RELAY_URL || '';
   const relaySecret = env.SMTP_RELAY_SECRET || '';
 
-  // Process pending and failed email notifications (retry)
+  // 1. Process pending and failed email notifications (retry)
   const pendingEmails = await db.prepare(`
     SELECT nl.*, s.email FROM notification_log nl
     JOIN subscriptions s ON nl.subscription_id = s.id
@@ -160,9 +173,9 @@ export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: Execu
     ORDER BY nl.created_at ASC LIMIT 10
   `).all();
 
-  const pendingList = (pendingEmails.results || []) as any[];
+  const pendingEmailList = (pendingEmails.results || []) as any[];
 
-  for (const notif of pendingList) {
+  for (const notif of pendingEmailList) {
     try {
       if (!relayUrl || !notif.email) continue;
       const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(notif.email)}`;
@@ -187,5 +200,60 @@ export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: Execu
     }
   }
 
-  console.log(`Cron: ${pendingList.length} pending emails processed`);
+  // 2. Process pending browser push notifications
+  const pendingBrowser = await db.prepare(`
+    SELECT nl.*, s.endpoint, s.p256dh, s.auth
+    FROM notification_log nl
+    JOIN subscriptions s ON nl.subscription_id = s.id
+    WHERE nl.status = 'pending' AND nl.type = 'browser'
+    ORDER BY nl.created_at ASC LIMIT 20
+  `).all();
+
+  const pendingBrowserList = (pendingBrowser.results || []) as any[];
+  const expiredEndpoints: string[] = [];
+
+  if (pendingBrowserList.length > 0) {
+    const { PushService } = await import('./services/push.service');
+    const pushService = new PushService(env);
+
+    for (const notif of pendingBrowserList) {
+      if (!notif.endpoint || !notif.p256dh || !notif.auth) {
+        await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = 'Missing subscription keys' WHERE id = ?`).bind(notif.id).run();
+        continue;
+      }
+
+      const result = await pushService.sendPush(
+        {
+          endpoint: notif.endpoint,
+          keys: { p256dh: notif.p256dh, auth: notif.auth },
+        },
+        {
+          title: notif.title,
+          body: notif.body || '',
+          url: notif.url || siteUrl,
+          tag: `news-${notif.news_id}`,
+          requireInteraction: true,
+        }
+      );
+
+      if (result.success) {
+        await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notif.id).run();
+      } else if (result.error === 'subscription_expired') {
+        expiredEndpoints.push(notif.endpoint);
+        await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = 'Subscription expired' WHERE id = ?`).bind(notif.id).run();
+      } else {
+        await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(result.error || 'Unknown error', notif.id).run();
+      }
+    }
+
+    // Clean up expired browser subscriptions
+    if (expiredEndpoints.length > 0) {
+      for (const endpoint of expiredEndpoints) {
+        await db.prepare(`DELETE FROM subscriptions WHERE type = 'browser' AND endpoint = ?`).bind(endpoint).run();
+      }
+      console.log(`Cleaned up ${expiredEndpoints.length} expired browser subscriptions`);
+    }
+  }
+
+  console.log(`Cron: ${pendingEmailList.length} emails, ${pendingBrowserList.length} browser pushes processed`);
 }

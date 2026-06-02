@@ -156,8 +156,8 @@ export interface LoginDto {
 }
 
 export interface Bindings {
-  DB: D1Database;
-  R2: R2Bucket;
+  DB: import('@cloudflare/workers-types').D1Database;
+  R2: import('@cloudflare/workers-types').R2Bucket;
   JWT_SECRET: string;
   CORS_ORIGIN: string;
   VAPID_PUBLIC_KEY?: string;

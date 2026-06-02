@@ -128,20 +128,54 @@ async function triggerNotifications(
       }
     }
 
-    // Browser push notification - log only (web-push doesn't work in CF Workers)
-    // TODO: Use a separate service (FCM) for actual browser push
-    if (sub.type === 'browser' && sub.endpoint) {
+    // Browser push notification - send immediately using webcrypto-web-push
+    if (sub.type === 'browser' && sub.endpoint && sub.p256dh && sub.auth && vapidPublicKey && vapidPrivateKey) {
+      // Insert notification log first
+      const notifResult = await db.prepare(`
+        INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
+        VALUES (?, 'browser', ?, ?, ?, ?, 'pending')
+      `).bind(
+        sub.id, title,
+        excerpt || 'Yeni haberi okumak için tıklayın',
+        `${siteUrl}/news/${slug}`, newsId
+      ).run();
+
+      const notifId = notifResult.meta?.last_row_id;
+
       try {
-        await db.prepare(`
-          INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status, error_message)
-          VALUES (?, 'browser', ?, ?, ?, ?, 'failed', 'Browser push not configured - requires FCM or similar service')
-        `).bind(
-          sub.id, `📰 ${title}`,
-          excerpt || 'Yeni haberi okumak için tıklayın',
-          `${siteUrl}/news/${slug}`, newsId
-        ).run();
-      } catch (err) {
-        console.error('Browser notification log error:', err);
+        const { PushService } = await import('../services/push.service');
+        const pushService = new PushService({
+          VAPID_PUBLIC_KEY: vapidPublicKey,
+          VAPID_PRIVATE_KEY: vapidPrivateKey,
+          VAPID_SUBJECT: 'mailto:admin@newshaberglobal.com',
+        } as any);
+
+        const result = await pushService.sendPush(
+          {
+            endpoint: sub.endpoint,
+            keys: { p256dh: sub.p256dh, auth: sub.auth },
+          },
+          {
+            title,
+            body: excerpt || 'Yeni haberi okumak için tıklayın',
+            url: `${siteUrl}/news/${slug}`,
+            tag: `news-${newsId}`,
+            requireInteraction: true,
+          }
+        );
+
+        if (result.success && notifId) {
+          await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notifId).run();
+        } else if (result.error === 'subscription_expired') {
+          // Remove expired subscription
+          await db.prepare(`DELETE FROM subscriptions WHERE id = ?`).bind(sub.id).run();
+          if (notifId) await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = 'Subscription expired' WHERE id = ?`).bind(notifId).run();
+        } else if (notifId) {
+          await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(result.error || 'Unknown error', notifId).run();
+        }
+      } catch (err: any) {
+        console.error('Browser push error:', err);
+        if (notifId) await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), notifId).run();
       }
     }
   }
