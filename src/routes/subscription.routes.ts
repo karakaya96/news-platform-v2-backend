@@ -155,9 +155,9 @@ subscriptionRoutes.post('/unsubscribe', async (c) => {
 
   const service = new SubscriptionService(c.env.DB);
 
-  // Browser unsubscribe
+  // Browser unsubscribe — permanent delete
   if (body.endpoint) {
-    const result = await service.deactivateBrowserSubscription(body.endpoint);
+    const result = await service.deleteBrowserSubscription(body.endpoint);
     if (result) {
       return success({ message: 'Bildirim aboneliği iptal edildi' });
     }

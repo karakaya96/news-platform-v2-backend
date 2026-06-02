@@ -7,20 +7,12 @@ export class SubscriptionService {
   async createSubscription(data: CreateSubscriptionDto): Promise<Subscription> {
     const categories = JSON.stringify(data.categories || []);
 
-    // Check for duplicate
+    // For browser: first delete ALL existing records for this endpoint (prevents duplicates from re-subscribe)
     if (data.type === 'browser' && data.endpoint) {
-      const existing = await this.db
-        .prepare('SELECT id FROM subscriptions WHERE type = ? AND endpoint = ? AND is_active = 1')
+      await this.db
+        .prepare('DELETE FROM subscriptions WHERE type = ? AND endpoint = ?')
         .bind('browser', data.endpoint)
-        .first();
-      if (existing) {
-        // Update categories instead of creating new
-        await this.db
-          .prepare('UPDATE subscriptions SET categories = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-          .bind(categories, existing.id)
-          .run();
-        return this.getSubscriptionById(existing.id) as Promise<Subscription>;
-      }
+        .run();
     }
 
     if (data.type === 'email' && data.email) {
@@ -124,10 +116,10 @@ export class SubscriptionService {
     return result.meta.changes > 0;
   }
 
-  // Deactivate browser subscription by endpoint
-  async deactivateBrowserSubscription(endpoint: string): Promise<boolean> {
+  // Delete browser subscription by endpoint (permanent)
+  async deleteBrowserSubscription(endpoint: string): Promise<boolean> {
     const result = await this.db
-      .prepare('UPDATE subscriptions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE type = ? AND endpoint = ?')
+      .prepare('DELETE FROM subscriptions WHERE type = ? AND endpoint = ?')
       .bind('browser', endpoint)
       .run();
     return result.meta.changes > 0;
