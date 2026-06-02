@@ -142,102 +142,27 @@ app.notFound((c) => {
 
 export default app;
 
-// Cron scheduled handler - runs every 5 minutes to send pending notifications
+// Cron scheduled handler - runs every 5 minutes
+// Primary job: process pending/failed email retries. New-publish notifications are triggered instantly from POST/PUT news endpoints.
 export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
   const db = env.DB;
   const siteUrl = 'https://newshaberglobal.vercel.app';
   const relayUrl = env.SMTP_RELAY_URL || '';
   const relaySecret = env.SMTP_RELAY_SECRET || '';
 
-  // 1. Find recently published news that hasn't been notified yet
-  const recentlyPublished = await db.prepare(`
-    SELECT n.id, n.title, n.slug, n.excerpt, n.category_id, n.published_at, c.slug as category_slug
-    FROM news n
-    LEFT JOIN categories c ON n.category_id = c.id
-    WHERE n.status = 'published'
-    AND n.published_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-60 minutes')
-    AND n.published_at <= strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-    AND NOT EXISTS (
-      SELECT 1 FROM notification_log nl WHERE nl.news_id = n.id
-    )
-    ORDER BY n.published_at DESC
-    LIMIT 5
-  `).all();
-
-  const newsItems = recentlyPublished.results || [];
-
-  for (const news of newsItems as any[]) {
-    const subs = await db.prepare(`
-      SELECT * FROM subscriptions
-      WHERE is_active = 1
-      AND (categories = '[]' OR categories LIKE ?)
-    `).bind(`%${news.category_slug}%`).all();
-
-    const subscriptions = subs.results || [];
-
-    for (const sub of subscriptions as any[]) {
-      if (sub.type === 'browser' && sub.endpoint && sub.p256dh && sub.auth) {
-        try {
-          await db.prepare(`
-            INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
-            VALUES (?, 'browser', ?, ?, ?, ?, 'sent')
-          `).bind(
-            sub.id, `📰 ${news.title}`,
-            news.excerpt || 'Yeni haberi okumak için tıklayın',
-            `${siteUrl}/news/${news.slug}`, news.id
-          ).run();
-        } catch (err) { console.error('Browser notification error:', err); }
-      }
-
-      if (sub.type === 'email' && sub.email) {
-        try {
-          const notifId = await db.prepare(`
-            INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
-            VALUES (?, 'email', ?, ?, ?, ?, 'pending')
-          `).bind(
-            sub.id, `📰 ${news.title}`,
-            news.excerpt || 'Yeni haberi okumak için tıklayın',
-            `${siteUrl}/news/${news.slug}`, news.id
-          ).run();
-
-          if (relayUrl) {
-            const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(sub.email)}`;
-            fetch(relayUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                secret: relaySecret, to: sub.email,
-                subject: `📰 ${news.title}`,
-                html: `<h2>${news.title}</h2><p>${news.excerpt || ''}</p><a href="${siteUrl}/news/${news.slug}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Haberi Oku →</a>`,
-                unsubscribeUrl,
-              }),
-            }).then(async (res) => {
-              if (res.ok) {
-                await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notifId.meta.last_row_id).run();
-              } else {
-                const errText = await res.text();
-                await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(errText, notifId.meta.last_row_id).run();
-              }
-            }).catch(async (err) => {
-              await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), notifId.meta.last_row_id).run();
-            });
-          }
-        } catch (err) { console.error('Email notification error:', err); }
-      }
-    }
-  }
-
-  // 2. Process pending email notifications (retry failed ones)
+  // Process pending and failed email notifications (retry)
   const pendingEmails = await db.prepare(`
     SELECT nl.*, s.email FROM notification_log nl
     JOIN subscriptions s ON nl.subscription_id = s.id
-    WHERE nl.status = 'pending' AND nl.type = 'email'
+    WHERE nl.status IN ('pending', 'failed') AND nl.type = 'email'
     ORDER BY nl.created_at ASC LIMIT 10
   `).all();
 
-  for (const notif of (pendingEmails.results || []) as any[]) {
+  const pendingList = (pendingEmails.results || []) as any[];
+
+  for (const notif of pendingList) {
     try {
-      if (!relayUrl) continue;
+      if (!relayUrl || !notif.email) continue;
       const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(notif.email)}`;
       const res = await fetch(relayUrl, {
         method: 'POST',
@@ -245,7 +170,7 @@ export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: Execu
         body: JSON.stringify({
           secret: relaySecret, to: notif.email,
           subject: notif.title,
-          html: `<h2>${notif.title}</h2><p>${notif.body || ''}</p><a href="${notif.url}">Haberi Oku →</a>`,
+          html: `<h2>${notif.title}</h2><p>${notif.body || ''}</p><a href="${notif.url}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Haberi Oku →</a>`,
           unsubscribeUrl,
         }),
       });
@@ -255,10 +180,10 @@ export async function scheduled(event: ScheduledEvent, env: Bindings, ctx: Execu
         const errText = await res.text();
         await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(errText, notif.id).run();
       }
-    } catch (err) {
+    } catch (err: any) {
       await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), notif.id).run();
     }
   }
 
-  console.log(`Cron: ${newsItems.length} news, ${(pendingEmails.results || []).length} pending`);
+  console.log(`Cron: ${pendingList.length} pending emails processed`);
 }
