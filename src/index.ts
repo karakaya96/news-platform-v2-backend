@@ -9,6 +9,7 @@ import uploadRoutes from './routes/upload.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import commentRoutes from './routes/comment.routes';
 import subscriptionRoutes from './routes/subscription.routes';
+import searchRoutes from './routes/search.routes';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -50,6 +51,7 @@ app.route('/api/upload', uploadRoutes);
 app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/comments', commentRoutes);
 app.route('/api/subscribe', subscriptionRoutes);
+app.route('/api/search', searchRoutes);
 
 // Test endpoint for cron (secured)
 app.get('/api/admin/trigger-cron', async (c) => {

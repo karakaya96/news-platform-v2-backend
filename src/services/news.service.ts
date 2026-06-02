@@ -330,4 +330,184 @@ export class NewsService {
 
     return { news: result.results || [], total };
   }
+
+  // ============================================
+  // Full-Text Search (FTS5)
+  // ============================================
+
+  async advancedSearch(params: {
+    query: string;
+    page?: number;
+    limit?: number;
+    category?: string;
+    author?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sortBy?: 'relevance' | 'date' | 'views';
+  }): Promise<{ news: NewsWithRelations[]; total: number }> {
+    const {
+      query,
+      page = 1,
+      limit = 10,
+      category,
+      author,
+      dateFrom,
+      dateTo,
+      sortBy = 'relevance',
+    } = params;
+
+    const offset = (page - 1) * limit;
+    const conditions: string[] = ["n.status = 'published'"];
+    const countParams: unknown[] = [];
+    const joinParams: unknown[] = [];
+
+    // FTS5 query
+    let ftsQuery = query.trim();
+    if (!ftsQuery) {
+      // No query — return all published news with filters
+    } else {
+      // Sanitize and build FTS5 query (support phrase + AND/OR)
+      ftsQuery = ftsQuery.replace(/['"]/g, '');
+    }
+
+    // Category filter
+    if (category) {
+      conditions.push('c.slug = ?');
+      countParams.push(category);
+      joinParams.push(category);
+    }
+
+    // Author filter
+    if (author) {
+      conditions.push('u.name LIKE ?');
+      countParams.push(`%${author}%`);
+      joinParams.push(`%${author}%`);
+    }
+
+    // Date range filter
+    if (dateFrom) {
+      conditions.push("strftime('%Y-%m-%dT%H:%M:%SZ', n.published_at) >= ?");
+      countParams.push(dateFrom);
+      joinParams.push(dateFrom);
+    }
+    if (dateTo) {
+      conditions.push("strftime('%Y-%m-%dT%H:%M:%SZ', n.published_at) <= ?");
+      countParams.push(dateTo);
+      joinParams.push(dateTo);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    let news: NewsWithRelations[] = [];
+    let total = 0;
+
+    if (ftsQuery) {
+      // FTS5 search with ranking
+      const rankExpr = sortBy === 'relevance' ? ', rank' : '';
+
+      // Count
+      const countSql = `
+        SELECT COUNT(*) as total FROM news_fts fts
+        JOIN news n ON n.id = fts.rowid
+        LEFT JOIN categories c ON n.category_id = c.id
+        LEFT JOIN users u ON n.author_id = u.id
+        WHERE news_fts MATCH ? AND ${conditions.join(' AND ')}
+      `;
+      const countResult = await this.db.prepare(countSql).bind(ftsQuery, ...countParams).first<{ total: number }>();
+      total = countResult?.total || 0;
+
+      // Data query
+      let orderClause: string;
+      switch (sortBy) {
+        case 'views':
+          orderClause = 'n.view_count DESC';
+          break;
+        case 'date':
+          orderClause = 'n.published_at DESC';
+          break;
+        case 'relevance':
+        default:
+          orderClause = 'rank';
+          break;
+      }
+
+      const dataSql = `
+        SELECT n.*, 
+          c.name as category_name, c.slug as category_slug, c.color as category_color,
+          u.name as author_name${rankExpr}
+        FROM news_fts fts
+        JOIN news n ON n.id = fts.rowid
+        LEFT JOIN categories c ON n.category_id = c.id
+        LEFT JOIN users u ON n.author_id = u.id
+        WHERE news_fts MATCH ? AND ${conditions.join(' AND ')}
+        ORDER BY ${orderClause}
+        LIMIT ? OFFSET ?
+      `;
+
+      const result = await this.db
+        .prepare(dataSql)
+        .bind(ftsQuery, ...joinParams, limit, offset)
+        .all<NewsWithRelations>();
+
+      news = result.results || [];
+    } else {
+      // No search query — use regular filtered listing
+      const countSql = `
+        SELECT COUNT(*) as total
+        FROM news n
+        LEFT JOIN categories c ON n.category_id = c.id
+        LEFT JOIN users u ON n.author_id = u.id
+        ${whereClause}
+      `;
+      const countResult = await this.db.prepare(countSql).bind(...countParams).first<{ total: number }>();
+      total = countResult?.total || 0;
+
+      let orderClause = 'n.published_at DESC';
+      if (sortBy === 'views') orderClause = 'n.view_count DESC';
+
+      const dataSql = `
+        SELECT n.*, 
+          c.name as category_name, c.slug as category_slug, c.color as category_color,
+          u.name as author_name
+        FROM news n
+        LEFT JOIN categories c ON n.category_id = c.id
+        LEFT JOIN users u ON n.author_id = u.id
+        ${whereClause}
+        ORDER BY ${orderClause}
+        LIMIT ? OFFSET ?
+      `;
+
+      const result = await this.db
+        .prepare(dataSql)
+        .bind(...joinParams, limit, offset)
+        .all<NewsWithRelations>();
+
+      news = result.results || [];
+    }
+
+    return { news, total };
+  }
+
+  // Autocomplete suggestions
+  async searchSuggest(query: string, limit: number = 5): Promise<{ id: number; title: string; slug: string }[]> {
+    if (!query || query.trim().length < 2) return [];
+
+    const safeQuery = query.trim().replace(/['"]/g, '');
+    // FTS5 prefix search
+    const ftsQuery = `${safeQuery}*`;
+
+    const result = await this.db
+      .prepare(`
+        SELECT n.id, n.title, n.slug
+        FROM news_fts fts
+        JOIN news n ON n.id = fts.rowid
+        WHERE news_fts MATCH ? AND n.status = 'published'
+        ORDER BY rank
+        LIMIT ?
+      `)
+      .bind(ftsQuery, limit)
+      .all<{ id: number; title: string; slug: string }>();
+
+    return result.results || [];
+  }
 }
