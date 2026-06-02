@@ -330,4 +330,21 @@ subscriptionRoutes.delete('/admin/:id', authMiddleware, async (c) => {
   return error('Abonelik bulunamadı', 404);
 });
 
+// DELETE /api/subscribe/admin/notifications/:id - Delete a notification log entry
+subscriptionRoutes.delete('/admin/notifications/:id', authMiddleware, async (c) => {
+  const user = c.get('user');
+  if (user?.role !== 'admin') {
+    return error('Yetkisiz erişim', 403);
+  }
+
+  const id = parseInt(c.req.param('id'));
+  const service = new SubscriptionService(c.env.DB);
+  const result = await service.deleteNotification(id);
+
+  if (result) {
+    return success({ message: 'Bildirim silindi' });
+  }
+  return error('Bildirim bulunamadı', 404);
+});
+
 export default subscriptionRoutes;

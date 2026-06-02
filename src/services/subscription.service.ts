@@ -210,4 +210,13 @@ export class SubscriptionService {
       .all<NotificationLog>();
     return result.results || [];
   }
+
+  // Delete a notification log entry (admin)
+  async deleteNotification(id: number): Promise<boolean> {
+    const result = await this.db
+      .prepare('DELETE FROM notification_log WHERE id = ?')
+      .bind(id)
+      .run();
+    return result.meta.changes > 0;
+  }
 }
