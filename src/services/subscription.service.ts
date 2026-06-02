@@ -93,6 +93,18 @@ export class SubscriptionService {
     }));
   }
 
+  // Get all subscriptions (active + inactive)
+  async getAllSubscriptions(): Promise<SubscriptionWithCategories[]> {
+    const result = await this.db
+      .prepare('SELECT * FROM subscriptions ORDER BY created_at DESC')
+      .all<Subscription>();
+
+    return (result.results || []).map((s) => ({
+      ...s,
+      categories: JSON.parse(s.categories || '[]'),
+    }));
+  }
+
   // Unsubscribe (deactivate)
   async unsubscribe(id: number): Promise<boolean> {
     const result = await this.db

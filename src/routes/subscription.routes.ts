@@ -215,7 +215,7 @@ subscriptionRoutes.get('/admin/stats', authMiddleware, async (c) => {
   return success(stats);
 });
 
-// GET /api/subscribe/admin/all - Get all subscriptions
+// GET /api/subscribe/admin/all - Get all subscriptions (active + inactive)
 subscriptionRoutes.get('/admin/all', authMiddleware, async (c) => {
   const user = c.get('user');
   if (user?.role !== 'admin') {
@@ -223,20 +223,83 @@ subscriptionRoutes.get('/admin/all', authMiddleware, async (c) => {
   }
 
   const type = c.req.query('type');
+  const status = c.req.query('status'); // 'active', 'inactive', or 'all'
   const service = new SubscriptionService(c.env.DB);
 
   let subscriptions;
   if (type === 'browser' || type === 'email') {
-    const all = await service.getAllActiveSubscriptions();
+    const all = await service.getAllSubscriptions();
     subscriptions = all.filter((s) => s.type === type);
   } else {
-    subscriptions = await service.getAllActiveSubscriptions();
+    subscriptions = await service.getAllSubscriptions();
+  }
+
+  // Filter by status if specified
+  if (status === 'active') {
+    subscriptions = subscriptions.filter((s) => s.is_active === 1);
+  } else if (status === 'inactive') {
+    subscriptions = subscriptions.filter((s) => s.is_active === 0);
   }
 
   return success(subscriptions);
 });
 
-// GET /api/subscribe/admin/notifications - Get notification log
+// POST /api/subscribe/admin/:id/activate - Activate a subscription
+subscriptionRoutes.post('/admin/:id/activate', authMiddleware, async (c) => {
+  const user = c.get('user');
+  if (user?.role !== 'admin') {
+    return error('Yetkisiz erişim', 403);
+  }
+
+  const id = parseInt(c.req.param('id'));
+  const result = await c.env.DB
+    .prepare('UPDATE subscriptions SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .bind(id)
+    .run();
+
+  if (result.meta.changes > 0) {
+    return success({ message: 'Abonelik aktif edildi' });
+  }
+  return error('Abonelik bulunamadı', 404);
+});
+
+// POST /api/subscribe/admin/:id/deactivate - Deactivate a subscription
+subscriptionRoutes.post('/admin/:id/deactivate', authMiddleware, async (c) => {
+  const user = c.get('user');
+  if (user?.role !== 'admin') {
+    return error('Yetkisiz erişim', 403);
+  }
+
+  const id = parseInt(c.req.param('id'));
+  const result = await c.env.DB
+    .prepare('UPDATE subscriptions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .bind(id)
+    .run();
+
+  if (result.meta.changes > 0) {
+    return success({ message: 'Abonelik deaktif edildi' });
+  }
+  return error('Abonelik bulunamadı', 404);
+});
+
+// DELETE /api/subscribe/admin/:id - Permanently delete a subscription from DB
+subscriptionRoutes.delete('/admin/:id', authMiddleware, async (c) => {
+  const user = c.get('user');
+  if (user?.role !== 'admin') {
+    return error('Yetkisiz erişim', 403);
+  }
+
+  const id = parseInt(c.req.param('id'));
+  const result = await c.env.DB
+    .prepare('DELETE FROM subscriptions WHERE id = ?')
+    .bind(id)
+    .run();
+
+  if (result.meta.changes > 0) {
+    return success({ message: 'Abonelik kalıcı olarak silindi' });
+  }
+  return error('Abonelik bulunamadı', 404);
+});
 subscriptionRoutes.get('/admin/notifications', authMiddleware, async (c) => {
   const user = c.get('user');
   if (user?.role !== 'admin') {
