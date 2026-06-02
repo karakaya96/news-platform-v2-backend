@@ -51,7 +51,12 @@ categoryRoutes.get('/:slug', async (c) => {
   const newsService = new NewsService(c.env.DB);
   const { news, total } = await newsService.getAllNews(page, limit, slug);
 
-  return success({ ...category, news, total, page, limit });
+  const countResult = await c.env.DB
+    .prepare('SELECT COUNT(*) as count FROM news WHERE category_id = ?')
+    .bind(category.id)
+    .first<{ count: number }>();
+
+  return success({ ...category, news, total, page, limit, article_count: countResult?.count || 0 });
 });
 
 // POST /api/categories - Admin only
