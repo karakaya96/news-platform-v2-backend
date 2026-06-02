@@ -30,7 +30,7 @@ subscriptionRoutes.post('/', async (c) => {
   const body = await c.req.json();
   const parsed = subscribeSchema.safeParse(body);
 
-  if (parsed.success) {
+  if (!parsed.success) {
     return error(parsed.error.errors[0].message, 400);
   }
 
