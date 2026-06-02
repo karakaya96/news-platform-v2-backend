@@ -21,20 +21,16 @@
     "paths": {
       "@/*": [
         "./src/*"
-      ],
-      "@db/*": [
-        "./db/*"
       ]
     },
     "baseUrl": "."
   },
   "include": [
-    "src/**/*.ts",
-    "db/**/*.ts",
-    "env.d.ts"
+    "src/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "db"
   ]
 }
