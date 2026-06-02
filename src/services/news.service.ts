@@ -14,11 +14,10 @@ export class NewsService {
     const conditions: string[] = [];
     const params: unknown[] = [];
 
-    if (status) {
+    // Status filter: 'all' or undefined = no filter (show all statuses)
+    if (status && status !== 'all') {
       conditions.push('n.status = ?');
       params.push(status);
-    } else {
-      conditions.push("n.status = 'published'");
     }
 
     if (category) {

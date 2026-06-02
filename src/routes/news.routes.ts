@@ -13,7 +13,7 @@ newsRoutes.get('/', async (c) => {
   const page = parseInt(c.req.query('page') || '1');
   const limit = parseInt(c.req.query('limit') || '10');
   const category = c.req.query('category');
-  const status = c.req.query('status');
+  const status = c.req.query('status') || 'published'; // Public: default to published only
   const search = c.req.query('search');
 
   const service = new NewsService(c.env.DB);
@@ -195,7 +195,12 @@ newsRoutes.post('/', authMiddleware, async (c) => {
   }
 
   const service = new NewsService(c.env.DB);
-  const news = await service.createNews({ ...parsed.data, author_id: user.sub });
+  const news = await service.createNews({ ...parsed.data, author_id: user.sub } as {
+    title: string; slug?: string; excerpt?: string; content: string; image_url?: string | null;
+    image_alt?: string | null; category_id: number; author_id: number; status?: string;
+    is_featured?: boolean; is_breaking?: boolean; seo_title?: string; seo_description?: string;
+    seo_keywords?: string; published_at?: string; tag_ids?: number[];
+  });
 
   // If published immediately, trigger notifications
   if (parsed.data.status === 'published') {

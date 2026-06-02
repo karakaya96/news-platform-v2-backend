@@ -4,10 +4,20 @@
     "module": "ES2022",
     "moduleResolution": "bundler",
     "lib": [
-      "ES2022"
+      "ES2015",
+      "ES2016",
+      "ES2017",
+      "ES2018",
+      "ES2019",
+      "ES2020",
+      "ES2021",
+      "ES2022",
+      "ESNext",
+      "WebWorker"
     ],
     "types": [
-      "@cloudflare/workers-types"
+      "@cloudflare/workers-types",
+      "@cloudflare/workers-types/experimental"
     ],
     "strict": true,
     "strictNullChecks": false,

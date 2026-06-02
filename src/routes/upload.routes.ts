@@ -17,7 +17,7 @@ uploadRoutes.post('/', authMiddleware, async (c) => {
   }
 
   const formData = await c.req.formData();
-  const file = formData.get('file') as File | null;
+  const file = formData.get('file') as unknown as File | null;
 
   if (!file) {
     return error('No file provided', 400);
@@ -37,7 +37,8 @@ uploadRoutes.post('/', authMiddleware, async (c) => {
   const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
   const filePath = `uploads/${fileName}`;
 
-  await c.env.R2.put(filePath, file.stream(), {
+  const arrayBuffer = await file.arrayBuffer();
+  await c.env.R2.put(filePath, arrayBuffer, {
     httpMetadata: { contentType: file.type },
   });
 

@@ -47,7 +47,9 @@ categoryRoutes.post('/', authMiddleware, async (c) => {
   }
 
   const service = new CategoryService(c.env.DB);
-  const category = await service.createCategory(parsed.data);
+  const category = await service.createCategory(parsed.data as {
+    name: string; slug?: string; description?: string; color?: string; sort_order?: number;
+  });
   return success(category, 201);
 });
 
