@@ -30,7 +30,7 @@ subscriptionRoutes.post('/', async (c) => {
   const body = await c.req.json();
   const parsed = subscribeSchema.safeParse(body);
 
-  if (!parsed.success) {
+  if (parsed.success) {
     return error(parsed.error.errors[0].message, 400);
   }
 
@@ -48,10 +48,28 @@ subscriptionRoutes.post('/', async (c) => {
   }
 
   const service = new SubscriptionService(c.env.DB);
+
+  // Check if already subscribed (active)
+  let alreadySubscribed = false;
+  if (data.type === 'email' && data.email) {
+    const existing = await c.env.DB
+      .prepare('SELECT id FROM subscriptions WHERE type = ? AND email = ? AND is_active = 1')
+      .bind('email', data.email.toLowerCase())
+      .first();
+    if (existing) alreadySubscribed = true;
+  }
+  if (data.type === 'browser' && data.endpoint) {
+    const existing = await c.env.DB
+      .prepare('SELECT id FROM subscriptions WHERE type = ? AND endpoint = ? AND is_active = 1')
+      .bind('browser', data.endpoint)
+      .first();
+    if (existing) alreadySubscribed = true;
+  }
+
   const subscription = await service.createSubscription(data as any);
 
-  // Send confirmation email for email subscriptions
-  if (data.type === 'email' && data.email) {
+  // Only send confirmation email for NEW subscriptions
+  if (data.type === 'email' && data.email && !alreadySubscribed) {
     const siteUrl = 'https://newshaberglobal.vercel.app';
     const relayUrl = c.env.SMTP_RELAY_URL || '';
     const relaySecret = c.env.SMTP_RELAY_SECRET || '';
@@ -80,31 +98,18 @@ subscriptionRoutes.post('/', async (c) => {
                       </td></tr>
                       <tr><td style="padding:30px">
                         <h2 style="color:#1e293b;margin:0 0 16px;font-size:20px">Aboneliğiniz Onaylandı! ✅</h2>
-                        <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">
-                          Merhaba,
-                        </p>
-                        <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">
-                          NewsHaberGlobal e-posta bildirim aboneliğiniz başarıyla oluşturuldu.
-                          Artık yeni haberler yayınlandığında sizi bilgilendireceğiz.
-                        </p>
+                        <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">Merhaba,</p>
+                        <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">NewsHaberGlobal e-posta bildirim aboneliğiniz başarıyla oluşturuldu. Artık yeni haberler yayınlandığında sizi bilgilendireceğiz.</p>
                         <div style="background:#f1f5f9;border-radius:8px;padding:16px;margin-bottom:16px">
-                          <p style="color:#475569;font-size:14px;margin:0 0 8px">
-                            <strong>📬 E-posta:</strong> ${data.email}
-                          </p>
-                          <p style="color:#475569;font-size:14px;margin:0">
-                            <strong>📂 Kategoriler:</strong> ${data.categories && data.categories.length > 0 ? data.categories.join(', ') : 'Tümü'}
-                          </p>
+                          <p style="color:#475569;font-size:14px;margin:0 0 8px"><strong>📬 E-posta:</strong> ${data.email}</p>
+                          <p style="color:#475569;font-size:14px;margin:0"><strong>📂 Kategoriler:</strong> ${data.categories && data.categories.length > 0 ? data.categories.join(', ') : 'Tümü'}</p>
                         </div>
                         <a href="${siteUrl}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:500;margin-bottom:16px">Siteyi Ziyaret Et →</a>
-                        <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0">
-                          Aboneliğinizi iptal etmek isterseniz aşağıdaki bağlantıyı kullanabilirsiniz.
-                        </p>
+                        <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0">Aboneliğinizi iptal etmek isterseniz aşağıdaki bağlantıyı kullanabilirsiniz.</p>
                       </td></tr>
                       <tr><td style="background:#f8fafc;padding:20px 30px;border-top:1px solid #e2e8f0;text-align:center">
                         <a href="${unsubscribeUrl}" style="color:#ef4444;text-decoration:none;font-size:13px;font-weight:500">✖ Aboneliği İptal Et</a>
-                        <p style="color:#94a3b8;font-size:12px;margin:8px 0 0">
-                          <a href="${siteUrl}" style="color:#6366f1;text-decoration:none">NewsHaberGlobal</a> © 2026
-                        </p>
+                        <p style="color:#94a3b8;font-size:12px;margin:8px 0 0"><a href="${siteUrl}" style="color:#6366f1;text-decoration:none">NewsHaberGlobal</a> © 2026</p>
                       </td></tr>
                     </table>
                   </td></tr>
@@ -121,15 +126,17 @@ subscriptionRoutes.post('/', async (c) => {
   }
 
   return success({
-    message: data.type === 'browser' 
-      ? 'Bildirim aboneliği başarıyla oluşturuldu!' 
-      : 'E-posta aboneliği başarıyla oluşturuldu!',
+    message: alreadySubscribed
+      ? 'Bu e-posta adresi zaten abone.'
+      : data.type === 'browser'
+        ? 'Bildirim aboneliği başarıyla oluşturuldu!'
+        : 'E-posta aboneliği başarıyla oluşturuldu!',
     subscription: {
       id: subscription.id,
       type: subscription.type,
       categories: JSON.parse(subscription.categories || '[]'),
     },
-  }, 201);
+  }, alreadySubscribed ? 200 : 201);
 });
 
 // POST /api/subscribe/unsubscribe - Unsubscribe
