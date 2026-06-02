@@ -80,6 +80,8 @@ async function triggerNotifications(
   siteUrl: string,
   relayUrl: string,
   relaySecret: string,
+  vapidPublicKey: string,
+  vapidPrivateKey: string,
 ) {
   const subService = new SubscriptionService(db);
   const subs = await subService.getActiveSubscriptionsByCategory(categorySlug);
@@ -126,11 +128,13 @@ async function triggerNotifications(
       }
     }
 
+    // Browser push notification - log only (web-push doesn't work in CF Workers)
+    // TODO: Use a separate service (FCM) for actual browser push
     if (sub.type === 'browser' && sub.endpoint) {
       try {
         await db.prepare(`
-          INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
-          VALUES (?, 'browser', ?, ?, ?, ?, 'sent')
+          INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status, error_message)
+          VALUES (?, 'browser', ?, ?, ?, ?, 'failed', 'Browser push not configured - requires FCM or similar service')
         `).bind(
           sub.id, `📰 ${title}`,
           excerpt || 'Yeni haberi okumak için tıklayın',
@@ -171,7 +175,8 @@ newsRoutes.post('/', authMiddleware, async (c) => {
 
     await triggerNotifications(
       c.env.DB, news.id, news.title, news.slug, news.excerpt,
-      categorySlug, siteUrl, relayUrl, relaySecret
+      categorySlug, siteUrl, relayUrl, relaySecret,
+      c.env.VAPID_PUBLIC_KEY, c.env.VAPID_PRIVATE_KEY
     );
   }
 
@@ -220,7 +225,8 @@ newsRoutes.put('/:id', authMiddleware, async (c) => {
 
     await triggerNotifications(
       c.env.DB, news.id, news.title, news.slug, news.excerpt,
-      categorySlug, siteUrl, relayUrl, relaySecret
+      categorySlug, siteUrl, relayUrl, relaySecret,
+      c.env.VAPID_PUBLIC_KEY, c.env.VAPID_PRIVATE_KEY
     );
   }
 
