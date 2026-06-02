@@ -2,7 +2,7 @@ import type { News, NewsWithRelations, Bindings } from '../types';
 import { generateSlug } from '../utils/validation';
 
 export class NewsService {
-  constructor(private db: D1Database) {}
+  constructor(private db: import('@cloudflare/workers-types').D1Database) {}
 
   async getAllNews(
     page: number = 1,
@@ -176,8 +176,8 @@ export class NewsService {
     slug?: string;
     excerpt?: string;
     content: string;
-    image_url?: string;
-    image_alt?: string;
+    image_url?: string | null;
+    image_alt?: string | null;
     category_id: number;
     author_id: number;
     status?: string;
@@ -227,8 +227,8 @@ export class NewsService {
     slug: string;
     excerpt: string;
     content: string;
-    image_url: string;
-    image_alt: string;
+    image_url: string | null;
+    image_alt: string | null;
     category_id: number;
     status: string;
     is_featured: boolean;

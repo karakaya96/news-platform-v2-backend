@@ -2,7 +2,7 @@ import type { Category, Bindings } from '../types';
 import { generateSlug } from '../utils/validation';
 
 export class CategoryService {
-  constructor(private db: D1Database) {}
+  constructor(private db: import('@cloudflare/workers-types').D1Database) {}
 
   async getAllCategories(): Promise<Category[]> {
     const result = await this.db
@@ -73,7 +73,7 @@ export class CategoryService {
     if (updates.length === 0) return existing;
 
     await this.db
-      .prepare(`UPDATE categories SET ${updates.join(', ')} WHERE id = ?`)
+      .prepare(`UPDATE categories SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
       .bind(...params, id)
       .run();
 

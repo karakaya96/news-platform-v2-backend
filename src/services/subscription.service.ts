@@ -1,7 +1,7 @@
 import type { Subscription, SubscriptionWithCategories, CreateSubscriptionDto, NotificationLog } from '../types';
 
 export class SubscriptionService {
-  constructor(private db: D1Database) {}
+  constructor(private db: import('@cloudflare/workers-types').D1Database) {}
 
   // Create a new subscription
   async createSubscription(data: CreateSubscriptionDto): Promise<Subscription> {

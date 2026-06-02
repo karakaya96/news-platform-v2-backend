@@ -71,7 +71,7 @@ newsRoutes.get('/:slug', async (c) => {
 
 // Helper: trigger notifications for a published news article
 async function triggerNotifications(
-  db: D1Database,
+  db: import('@cloudflare/workers-types').D1Database,
   newsId: number,
   title: string,
   slug: string,

@@ -1,7 +1,7 @@
 import type { Comment, CommentWithNews } from '../types';
 
 export class CommentService {
-  constructor(private db: D1Database) {}
+  constructor(private db: import('@cloudflare/workers-types').D1Database) {}
 
   // Create a new comment (public)
   async createComment(data: {
@@ -10,8 +10,8 @@ export class CommentService {
     author_name: string;
     author_email: string;
     content: string;
-    ip_address?: string;
-    user_agent?: string;
+    ip_address?: string | null;
+    user_agent?: string | null;
   }): Promise<Comment> {
     const result = await this.db
       .prepare(`

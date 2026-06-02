@@ -313,8 +313,8 @@ subscriptionRoutes.get('/admin/notifications', authMiddleware, async (c) => {
   return success(notifications);
 });
 
-// DELETE /api/subscribe/admin/:id - Delete a subscription
-subscriptionRoutes.delete('/admin/:id', authMiddleware, async (c) => {
+// PUT /api/subscribe/admin/:id/deactivate - Soft delete (deactivate)
+subscriptionRoutes.put('/admin/:id/deactivate', authMiddleware, async (c) => {
   const user = c.get('user');
   if (user?.role !== 'admin') {
     return error('Yetkisiz erişim', 403);
@@ -325,7 +325,7 @@ subscriptionRoutes.delete('/admin/:id', authMiddleware, async (c) => {
   const result = await service.unsubscribe(id);
 
   if (result) {
-    return success({ message: 'Abonelik silindi' });
+    return success({ message: 'Abonelik deaktif edildi' });
   }
   return error('Abonelik bulunamadı', 404);
 });

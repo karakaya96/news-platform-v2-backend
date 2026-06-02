@@ -2,7 +2,7 @@ import type { User, Bindings } from '../types';
 import { hashPassword, verifyPassword, generateToken } from '../utils/auth';
 
 export class AuthService {
-  constructor(private db: D1Database) {}
+  constructor(private db: import('@cloudflare/workers-types').D1Database) {}
 
   async login(email: string, password: string, jwtSecret: string): Promise<{ user: Omit<User, 'password_hash'>; token: string } | null> {
     const user = await this.db
