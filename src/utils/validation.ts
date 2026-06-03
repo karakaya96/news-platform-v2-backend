@@ -1,8 +1,13 @@
 import { z } from 'zod';
 
 function generateSlug(title: string): string {
+  const turkishMap: Record<string, string> = {
+    'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u',
+    'Ç': 'c', 'Ğ': 'g', 'İ': 'i', 'Ö': 'o', 'Ş': 's', 'Ü': 'u',
+  };
   return title
     .toLowerCase()
+    .replace(/[çğıöşüÇĞİÖŞÜ]/g, (c) => turkishMap[c] || c)
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 }

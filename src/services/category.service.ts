@@ -34,18 +34,21 @@ export class CategoryService {
     sort_order?: number;
   }): Promise<Category> {
     const slug = data.slug || generateSlug(data.name);
+    const now = turkeyNowSQL();
 
     const result = await this.db
       .prepare(`
-        INSERT INTO categories (name, slug, description, color, sort_order)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO categories (name, slug, description, color, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         data.name,
         slug,
         data.description || null,
         data.color || '#6366f1',
-        data.sort_order || 0
+        data.sort_order ?? 0,
+        now,
+        now
       )
       .run();
 
