@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Bindings } from './types';
 import { errorMiddleware } from './middleware/error';
+import { turkeyNowISO } from './utils/time';
 import newsRoutes from './routes/news.routes';
 import categoryRoutes from './routes/category.routes';
 import authRoutes from './routes/auth.routes';
@@ -40,7 +41,7 @@ app.use('*', async (c, next) => {
 
 // Health check
 app.get('/api/health', (c) => {
-  return Response.json({ status: 'ok', timestamp: new Date().toISOString() });
+  return Response.json({ status: 'ok', timestamp: turkeyNowISO() });
 });
 
 // Mount routes
