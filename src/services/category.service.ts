@@ -1,5 +1,6 @@
 import type { Category, Bindings } from '../types';
 import { generateSlug } from '../utils/validation';
+import { turkeyNowSQL } from '../utils/time';
 
 export class CategoryService {
   constructor(private db: import('@cloudflare/workers-types').D1Database) {}
@@ -80,8 +81,8 @@ export class CategoryService {
     if (updates.length === 0) return existing;
 
     await this.db
-      .prepare(`UPDATE categories SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-      .bind(...params, id)
+      .prepare(`UPDATE categories SET ${updates.join(', ')}, updated_at = ? WHERE id = ?`)
+      .bind(...params, turkeyNowSQL(), id)
       .run();
 
     return this.db

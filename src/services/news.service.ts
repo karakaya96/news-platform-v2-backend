@@ -1,5 +1,6 @@
 import type { News, NewsWithRelations, Bindings } from '../types';
 import { generateSlug } from '../utils/validation';
+import { turkeyNowISO, turkeyNowSQL } from '../utils/time';
 
 export class NewsService {
   constructor(private db: import('@cloudflare/workers-types').D1Database) {}
@@ -9,7 +10,12 @@ export class NewsService {
     limit: number = 10,
     category?: string,
     status?: string,
-    search?: string
+    search?: string,
+    featured?: string,
+    breaking?: string,
+    dateFrom?: string,
+    dateTo?: string,
+    sortBy?: string
   ): Promise<{ news: NewsWithRelations[]; total: number }> {
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -33,8 +39,53 @@ export class NewsService {
       params.push(searchTerm, searchTerm, searchTerm);
     }
 
+    // Featured filter
+    if (featured === '1' || featured === 'true') {
+      conditions.push('n.is_featured = 1');
+    } else if (featured === '0') {
+      conditions.push('n.is_featured = 0');
+    }
+
+    // Breaking filter
+    if (breaking === '1' || breaking === 'true') {
+      conditions.push('n.is_breaking = 1');
+    } else if (breaking === '0') {
+      conditions.push('n.is_breaking = 0');
+    }
+
+    // Date range filter
+    if (dateFrom) {
+      conditions.push("strftime('%Y-%m-%dT%H:%M:%SZ', COALESCE(n.published_at, n.created_at)) >= ?");
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      conditions.push("strftime('%Y-%m-%dT%H:%M:%SZ', COALESCE(n.published_at, n.created_at)) <= ?");
+      params.push(dateTo);
+    }
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const offset = (page - 1) * limit;
+
+    // Sort order
+    let orderBy: string;
+    switch (sortBy) {
+      case 'oldest':
+        orderBy = 'n.published_at ASC, n.created_at ASC';
+        break;
+      case 'views':
+        orderBy = 'n.view_count DESC';
+        break;
+      case 'title_asc':
+        orderBy = 'n.title ASC';
+        break;
+      case 'title_desc':
+        orderBy = 'n.title DESC';
+        break;
+      case 'newest':
+      default:
+        orderBy = 'n.published_at DESC, n.created_at DESC';
+        break;
+    }
 
     const countQuery = `
       SELECT COUNT(*) as total
@@ -51,7 +102,7 @@ export class NewsService {
       LEFT JOIN categories c ON n.category_id = c.id
       LEFT JOIN users u ON n.author_id = u.id
       ${whereClause}
-      ORDER BY n.published_at DESC, n.created_at DESC
+      ORDER BY ${orderBy}
       LIMIT ? OFFSET ?
     `;
 
@@ -191,14 +242,17 @@ export class NewsService {
     const slug = data.slug || generateSlug(data.title);
     const isFeatured = data.is_featured ? 1 : 0;
     const isBreaking = data.is_breaking ? 1 : 0;
+    // Turkey is UTC+3
+    const now = turkeyNowISO();
+    const nowSQL = turkeyNowSQL();
     const publishedAt = data.status === 'published' && !data.published_at
-      ? new Date().toISOString()
+      ? now
       : data.published_at;
 
     const result = await this.db
       .prepare(`
-        INSERT INTO news (title, slug, excerpt, content, image_url, image_alt, category_id, author_id, status, is_featured, is_breaking, seo_title, seo_description, seo_keywords, published_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO news (title, slug, excerpt, content, image_url, image_alt, category_id, author_id, status, is_featured, is_breaking, seo_title, seo_description, seo_keywords, published_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         data.title, slug, data.excerpt || null, data.content,
@@ -206,7 +260,7 @@ export class NewsService {
         data.category_id, data.author_id, data.status || 'draft',
         isFeatured, isBreaking,
         data.seo_title || null, data.seo_description || null, data.seo_keywords || null,
-        publishedAt || null
+        publishedAt || null, nowSQL, nowSQL
       )
       .run();
 
@@ -256,7 +310,7 @@ export class NewsService {
       params.push(data.status);
       if (data.status === 'published' && !existing.published_at) {
         updates.push('published_at = ?');
-        params.push(new Date().toISOString());
+        params.push(turkeyNowISO());
       }
     }
     if (data.is_featured !== undefined) { updates.push('is_featured = ?'); params.push(data.is_featured ? 1 : 0); }
@@ -266,7 +320,8 @@ export class NewsService {
     if (data.seo_keywords !== undefined) { updates.push('seo_keywords = ?'); params.push(data.seo_keywords); }
     if (data.published_at !== undefined) { updates.push('published_at = ?'); params.push(data.published_at); }
 
-    updates.push('updated_at = CURRENT_TIMESTAMP');
+    updates.push('updated_at = ?');
+    params.push(turkeyNowSQL());
 
     if (updates.length > 1) {
       await this.db

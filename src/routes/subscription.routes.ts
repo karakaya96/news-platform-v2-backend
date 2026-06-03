@@ -3,6 +3,7 @@ import type { Bindings } from '../types';
 import { SubscriptionService } from '../services/subscription.service';
 import { authMiddleware } from '../middleware/auth';
 import { success, error, paginated } from '../utils/response';
+import { turkeyNowSQL } from '../utils/time';
 import { z } from 'zod';
 
 const subscriptionRoutes = new Hono<{ Bindings: Bindings }>();
@@ -253,8 +254,8 @@ subscriptionRoutes.post('/admin/:id/activate', authMiddleware, async (c) => {
 
   const id = parseInt(c.req.param('id'));
   const result = await c.env.DB
-    .prepare('UPDATE subscriptions SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-    .bind(id)
+    .prepare('UPDATE subscriptions SET is_active = 1, updated_at = ? WHERE id = ?')
+    .bind(turkeyNowSQL(), id)
     .run();
 
   if (result.meta.changes > 0) {
@@ -272,8 +273,8 @@ subscriptionRoutes.post('/admin/:id/deactivate', authMiddleware, async (c) => {
 
   const id = parseInt(c.req.param('id'));
   const result = await c.env.DB
-    .prepare('UPDATE subscriptions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-    .bind(id)
+    .prepare('UPDATE subscriptions SET is_active = 0, updated_at = ? WHERE id = ?')
+    .bind(turkeyNowSQL(), id)
     .run();
 
   if (result.meta.changes > 0) {

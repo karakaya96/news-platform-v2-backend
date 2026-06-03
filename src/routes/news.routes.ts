@@ -13,11 +13,19 @@ newsRoutes.get('/', async (c) => {
   const page = parseInt(c.req.query('page') || '1');
   const limit = parseInt(c.req.query('limit') || '10');
   const category = c.req.query('category');
-  const status = c.req.query('status') || 'published'; // Public: default to published only
+  const status = c.req.query('status') || 'published';
   const search = c.req.query('search');
+  const featured = c.req.query('featured');
+  const breaking = c.req.query('breaking');
+  const dateFrom = c.req.query('dateFrom');
+  const dateTo = c.req.query('dateTo');
+  const sortBy = c.req.query('sortBy');
 
   const service = new NewsService(c.env.DB);
-  const { news, total } = await service.getAllNews(page, limit, category, status, search);
+  const { news, total } = await service.getAllNews(
+    page, limit, category, status, search,
+    featured, breaking, dateFrom, dateTo, sortBy
+  );
   return paginated(news, total, page, limit);
 });
 

@@ -1,4 +1,5 @@
 import type { Comment, CommentWithNews } from '../types';
+import { turkeyNowSQL } from '../utils/time';
 
 export class CommentService {
   constructor(private db: import('@cloudflare/workers-types').D1Database) {}
@@ -13,10 +14,11 @@ export class CommentService {
     ip_address?: string | null;
     user_agent?: string | null;
   }): Promise<Comment> {
+    const now = turkeyNowSQL();
     const result = await this.db
       .prepare(`
-        INSERT INTO comments (news_id, parent_id, author_name, author_email, content, ip_address, user_agent, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+        INSERT INTO comments (news_id, parent_id, author_name, author_email, content, ip_address, user_agent, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
       `)
       .bind(
         data.news_id,
@@ -25,7 +27,8 @@ export class CommentService {
         data.author_email,
         data.content,
         data.ip_address || null,
-        data.user_agent || null
+        data.user_agent || null,
+        now
       )
       .run();
 

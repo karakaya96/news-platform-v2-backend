@@ -53,8 +53,25 @@ dashboardRoutes.get('/stats', authMiddleware, async (c) => {
     .prepare("SELECT COUNT(*) as count FROM news WHERE status = 'draft'")
     .first<{ count: number }>();
 
+  const archivedCount = await db
+    .prepare("SELECT COUNT(*) as count FROM news WHERE status = 'archived'")
+    .first<{ count: number }>();
+
   const pendingComments = await db
     .prepare("SELECT COUNT(*) as count FROM comments WHERE status = 'pending'")
+    .first<{ count: number }>();
+
+  // Subscription stats
+  const activeSubscriptions = await db
+    .prepare("SELECT COUNT(*) as count FROM subscriptions WHERE is_active = 1")
+    .first<{ count: number }>();
+
+  const browserSubscriptions = await db
+    .prepare("SELECT COUNT(*) as count FROM subscriptions WHERE is_active = 1 AND type = 'browser'")
+    .first<{ count: number }>();
+
+  const emailSubscriptions = await db
+    .prepare("SELECT COUNT(*) as count FROM subscriptions WHERE is_active = 1 AND type = 'email'")
     .first<{ count: number }>();
 
   return success({
@@ -62,7 +79,11 @@ dashboardRoutes.get('/stats', authMiddleware, async (c) => {
     totalCategories: totalCategories?.count || 0,
     publishedCount: publishedCount?.count || 0,
     draftCount: draftCount?.count || 0,
+    archivedCount: archivedCount?.count || 0,
     pendingComments: pendingComments?.count || 0,
+    activeSubscriptions: activeSubscriptions?.count || 0,
+    browserSubscriptions: browserSubscriptions?.count || 0,
+    emailSubscriptions: emailSubscriptions?.count || 0,
     recentNews: recentNews.results || [],
     categoryDistribution: categoryDistribution.results || [],
   });
