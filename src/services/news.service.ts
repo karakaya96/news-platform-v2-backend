@@ -59,8 +59,9 @@ export class NewsService {
       params.push(dateFrom);
     }
     if (dateTo) {
+      // dateTo is inclusive: add 23:59:59 to include the entire day
       conditions.push("strftime('%Y-%m-%dT%H:%M:%SZ', COALESCE(n.published_at, n.created_at)) <= ?");
-      params.push(dateTo);
+      params.push(dateTo + 'T23:59:59Z');
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -445,9 +446,10 @@ export class NewsService {
       joinParams.push(dateFrom);
     }
     if (dateTo) {
+      // dateTo is inclusive: add 23:59:59 to include the entire day
       conditions.push("strftime('%Y-%m-%dT%H:%M:%SZ', n.published_at) <= ?");
-      countParams.push(dateTo);
-      joinParams.push(dateTo);
+      countParams.push(dateTo + 'T23:59:59Z');
+      joinParams.push(dateTo + 'T23:59:59Z');
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
