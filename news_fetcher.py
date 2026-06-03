@@ -417,82 +417,229 @@ def extract_content(html: str, url: str = "") -> str:
     return content[:8000]
 
 
-def detect_videos(html: str) -> list[dict]:
-    """Sayfadaki video embed kodlarını algılar."""
-    videos = []
+def detect_videos(html: str, base_url: str = "") -> list[dict]:
+    """Sayfadaki video embed kodlarını algılar.
 
-    # YouTube iframe
-    yt_iframes = re.findall(
+    Desteklenen formatlar:
+    - YouTube iframe / watch link
+    - Vimeo iframe
+    - Dailymotion iframe
+    - Bloomberg embed iframe
+    - Milliyet / Hürriyet / CNN Türk embed iframe
+    - <video> tag (src ve <source> ile)
+    - Sondakika: data-video-url, video_file, videoUrl
+    - Ensonhaber: data-src attribute
+    - Genel data-* attribute'ları (data-video-src, data-media-url, data-url)
+    - JSON-LD VideoObject (contentUrl, embedUrl)
+    - Genel .mp4/.webm/.m3u8 linkleri
+    """
+    videos = []
+    _add = lambda v: videos.append(v)  # kısa yol
+
+    def _already_has(url: str) -> bool:
+        return any(v["url"] == url for v in videos)
+
+    def _normalize(url: str) -> str:
+        if url.startswith("//"):
+            return "https:" + url
+        return url
+
+    # ══════════════════════════════════════════════
+    # 1. YouTube iframe
+    # ══════════════════════════════════════════════
+    for src in re.findall(
         r'<iframe[^>]*src=["\']([^"\']*youtube(?:-nocookie)?\.com/embed/[^"\']*)["\'][^>]*>',
         html, re.IGNORECASE
-    )
-    for src in yt_iframes:
-        if src.startswith("//"):
-            src = "https:" + src
-        videos.append({"type": "youtube_iframe", "url": src})
+    ):
+        _add({"type": "youtube_iframe", "url": _normalize(src)})
 
-    # YouTube link (embed değil)
-    yt_links = re.findall(
-        r'https?://(?:www\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]+)',
-        html
-    )
-    for vid in yt_links:
+    # YouTube watch link
+    for vid in re.findall(
+        r'https?://(?:www\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]+)', html
+    ):
         if not any(v["url"].find(vid) != -1 for v in videos):
-            videos.append({
-                "type": "youtube_link",
-                "url": f"https://www.youtube.com/watch?v={vid}",
-            })
+            _add({"type": "youtube_link", "url": f"https://www.youtube.com/watch?v={vid}"})
 
-    # Vimeo iframe
-    vimeo_iframes = re.findall(
+    # YouTube nocookie link
+    for vid in re.findall(
+        r'https?://(?:www\.)?youtube-nocookie\.com/embed/([a-zA-Z0-9_-]+)', html
+    ):
+        if not any(v["url"].find(vid) != -1 for v in videos):
+            _add({"type": "youtube_iframe", "url": f"https://www.youtube-nocookie.com/embed/{vid}"})
+
+    # ══════════════════════════════════════════════
+    # 2. Vimeo iframe
+    # ══════════════════════════════════════════════
+    for src in re.findall(
         r'<iframe[^>]*src=["\']([^"\']*player\.vimeo\.com/video/[^"\']*)["\'][^>]*>',
         html, re.IGNORECASE
-    )
-    for src in vimeo_iframes:
-        videos.append({"type": "vimeo_iframe", "url": src})
+    ):
+        _add({"type": "vimeo_iframe", "url": _normalize(src)})
 
-    # Dailymotion
-    dm_iframes = re.findall(
+    # ══════════════════════════════════════════════
+    # 3. Dailymotion iframe
+    # ══════════════════════════════════════════════
+    for src in re.findall(
         r'<iframe[^>]*src=["\']([^"\']*dailymotion\.com/embed/video/[^"\']*)["\'][^>]*>',
         html, re.IGNORECASE
-    )
-    for src in dm_iframes:
-        videos.append({"type": "dailymotion_iframe", "url": src})
+    ):
+        _add({"type": "dailymotion_iframe", "url": _normalize(src)})
 
-    # Generic <video> tag — <source> içinden
-    video_sources = re.findall(
+    # Dailymotion short URL (dai.ly/xxxxx)
+    for daid in re.findall(r'https?://(?:www\.)?dai\.ly/([a-zA-Z0-9]+)', html):
+        url = f"https://www.dailymotion.com/embed/video/{daid}"
+        if not _already_has(url):
+            _add({"type": "dailymotion_iframe", "url": url})
+
+    # ══════════════════════════════════════════════
+    # 4. Bloomberg embed iframe
+    # ══════════════════════════════════════════════
+    for src in re.findall(
+        r'<iframe[^>]*src=["\']([^"\']*bloomberg\.com/api/embed/iframe[^"\']*)["\'][^>]*>',
+        html, re.IGNORECASE
+    ):
+        _add({"type": "bloomberg_iframe", "url": _normalize(src)})
+
+    # ══════════════════════════════════════════════
+    # 5. Türk siteleri embed iframe'leri
+    #    Milliyet, Hürriyet, CNN Türk, DHA, TRT Haber, AA, NTV
+    # ══════════════════════════════════════════════
+    tr_embed_patterns = [
+        # Milliyet: milliyet.com.tr/video/embed/?vid=XXXXX
+        r'<iframe[^>]*src=["\']([^"\']*milliyet\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # Hürriyet: hurriyet.com.tr/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*hurriyet\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # CNN Türk: cnnturk.com/video/embed/?vid=XXXXX
+        r'<iframe[^>]*src=["\']([^"\']*cnnturk\.com/video/embed/[^"\']*)["\'][^>]*>',
+        # DHA: dha.com.tr/video/embed/?vid=XXXXX
+        r'<iframe[^>]*src=["\']([^"\']*dha\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # TRT Haber: trthaber.com/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*trthaber\.com/video/embed/[^"\']*)["\'][^>]*>',
+        # AA: aa.com.tr/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*aa\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # NTV: ntv.com.tr/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*ntv\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # Habertürk: haberturk.com/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*haberturk\.com/video/embed/[^"\']*)["\'][^>]*>',
+        # Sözcü: sozcu.com.tr/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*sozcu\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # Cumhuriyet: cumhuriyet.com.tr/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*cumhuriyet\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # BirGün: birgun.net/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*birgun\.net/video/embed/[^"\']*)["\'][^>]*>',
+        # T24: t24.com.tr/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*t24\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # Mynet: mynet.com/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*mynet\.com/video/embed/[^"\']*)["\'][^>]*>',
+        # Sabah: sabah.com.tr/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*sabah\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # Yeni Şafak: yenisafak.com/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*yenisafak\.com/video/embed/[^"\']*)["\'][^>]*>',
+        # Gazete Duvar: gazeteduvar.com.tr/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*gazeteduvar\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # Diken: diken.com.tr/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*diken\.com\.tr/video/embed/[^"\']*)["\'][^>]*>',
+        # Haberler.com: haberler.com/video/embed/...
+        r'<iframe[^>]*src=["\']([^"\']*haberler\.com/video/embed/[^"\']*)["\'][^>]*>',
+    ]
+    for pattern in tr_embed_patterns:
+        for src in re.findall(pattern, html, re.IGNORECASE):
+            _add({"type": "tr_site_iframe", "url": _normalize(src)})
+
+    # ══════════════════════════════════════════════
+    # 6. <video> tag — <source> içinden
+    # ══════════════════════════════════════════════
+    for src in re.findall(
         r'<source[^>]+src=["\']([^"\']+)["\'][^>]*type=["\']video/',
         html, re.IGNORECASE
-    )
-    for src in video_sources:
-        videos.append({"type": "direct_video", "url": src})
+    ):
+        if not _already_has(src):
+            _add({"type": "direct_video", "url": src})
 
-    # <video> tag'inin kendisindeki src (Sondakika vs.)
-    video_tags = re.findall(
-        r'<video[^>]+src=["\']([^"\']+)["\']',
-        html, re.IGNORECASE
-    )
-    for src in video_tags:
-        if not any(v["url"] == src for v in videos):
-            videos.append({"type": "direct_video", "url": src})
+    # <video> tag'inin kendisindeki src
+    for src in re.findall(
+        r'<video[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE
+    ):
+        if not _already_has(src):
+            _add({"type": "direct_video", "url": src})
 
-    # Sondakika: data-video-url veya video_file attribute
-    sondakika_video = re.findall(
+    # ══════════════════════════════════════════════
+    # 7. Sondakika: data-video-url, video_file, videoUrl
+    # ══════════════════════════════════════════════
+    for src in re.findall(
         r'(?:data-video-url|video_file|videoUrl)["\s:=]+["\']([^"\']+)["\']',
         html, re.IGNORECASE
-    )
-    for src in sondakika_video:
-        if not any(v["url"] == src for v in videos):
-            videos.append({"type": "direct_video", "url": src})
+    ):
+        if not _already_has(src):
+            _add({"type": "direct_video", "url": src})
 
-    # Genel: .mp4 linkleri ara (JavaScript içinden)
-    mp4_links = re.findall(
-        r'["\'](https?://[^"\']*\.mp4[^"\']*)["\']',
+    # ══════════════════════════════════════════════
+    # 8. Ensonhaber ve diğer siteler: data-src attribute
+    #    (JavaScript ile yüklenen videolar)
+    # ══════════════════════════════════════════════
+    for src in re.findall(
+        r'data-src=["\']([^"\']*\.(?:mp4|webm|flv|m3u8)[^"\']*)["\']',
         html, re.IGNORECASE
-    )
-    for src in mp4_links:
-        if not any(v["url"] == src for v in videos):
-            videos.append({"type": "direct_video", "url": src})
+    ):
+        if not _already_has(src):
+            _add({"type": "direct_video", "url": src})
+
+    # ══════════════════════════════════════════════
+    # 9. Genel data-* attribute'ları
+    # ══════════════════════════════════════════════
+    data_attrs = [
+        "data-video-src", "data-media-url", "data-url",
+        "data-video-url", "data-file", "data-stream",
+        "data-mp4", "data-hls", "data-video",
+    ]
+    for attr in data_attrs:
+        for src in re.findall(
+            rf'{attr}=["\']([^"\']*\.(?:mp4|webm|flv|m3u8|mov)[^"\']*)["\']',
+            html, re.IGNORECASE
+        ):
+            if not _already_has(src):
+                _add({"type": "direct_video", "url": src})
+
+    # ══════════════════════════════════════════════
+    # 10. JSON-LD VideoObject
+    # ══════════════════════════════════════════════
+    for m in re.finditer(
+        r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html, re.DOTALL | re.IGNORECASE
+    ):
+        try:
+            data = json.loads(m.group(1))
+            # Tek VideoObject
+            if isinstance(data, dict) and data.get("@type") == "VideoObject":
+                content_url = data.get("contentUrl", "")
+                embed_url = data.get("embedUrl", "")
+                if content_url and not _already_has(content_url):
+                    _add({"type": "direct_video", "url": content_url})
+                if embed_url and not _already_has(embed_url):
+                    _add({"type": "jsonld_iframe", "url": embed_url})
+            # @graph içinde VideoObject
+            if isinstance(data, dict) and "@graph" in data:
+                for item in data["@graph"]:
+                    if isinstance(item, dict) and item.get("@type") == "VideoObject":
+                        content_url = item.get("contentUrl", "")
+                        embed_url = item.get("embedUrl", "")
+                        if content_url and not _already_has(content_url):
+                            _add({"type": "direct_video", "url": content_url})
+                        if embed_url and not _already_has(embed_url):
+                            _add({"type": "jsonld_iframe", "url": embed_url})
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    # ══════════════════════════════════════════════
+    # 11. Genel .mp4/.webm/.m3u8 linkleri (JavaScript içinden)
+    # ══════════════════════════════════════════════
+    for ext in ["mp4", "webm", "flv", "m3u8", "mov"]:
+        for src in re.findall(
+            rf'["\'](https?://[^"\']*\.{ext}[^"\']*)["\']',
+            html, re.IGNORECASE
+        ):
+            if not _already_has(src):
+                _add({"type": "direct_video", "url": src})
 
     return videos
 
@@ -524,10 +671,21 @@ def deduplicate_videos(videos: list[dict]) -> list[dict]:
 
 
 def generate_video_embed(video: dict) -> str:
-    """Video için HTML embed kodu oluşturur."""
+    """Video için HTML embed kodu oluşturur.
+
+    Desteklenen tipler:
+    - youtube_iframe / youtube_link → YouTube embed iframe
+    - vimeo_iframe → Vimeo embed iframe
+    - dailymotion_iframe → Dailymotion embed iframe
+    - bloomberg_iframe → Bloomberg embed iframe
+    - tr_site_iframe → Türk siteleri embed iframe (Milliyet, Hürriyet, CNN Türk, vs.)
+    - jsonld_iframe → JSON-LD'den gelen embed URL
+    - direct_video → HTML5 <video> tag
+    """
     vtype = video["type"]
     url = video["url"]
 
+    # YouTube iframe (zaten embed URL)
     if vtype == "youtube_iframe":
         return (
             f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
@@ -538,6 +696,7 @@ def generate_video_embed(video: dict) -> str:
             f'</iframe></div>'
         )
 
+    # YouTube watch link → embed URL'ye çevir
     if vtype == "youtube_link":
         video_id = url.split("v=")[-1].split("&")[0]
         embed_url = f"https://www.youtube.com/embed/{video_id}"
@@ -550,6 +709,7 @@ def generate_video_embed(video: dict) -> str:
             f'</iframe></div>'
         )
 
+    # Vimeo
     if vtype == "vimeo_iframe":
         return (
             f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
@@ -558,6 +718,7 @@ def generate_video_embed(video: dict) -> str:
             f'height:100%;border:0;" allowfullscreen></iframe></div>'
         )
 
+    # Dailymotion
     if vtype == "dailymotion_iframe":
         return (
             f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
@@ -566,13 +727,73 @@ def generate_video_embed(video: dict) -> str:
             f'height:100%;border:0;" allowfullscreen></iframe></div>'
         )
 
+    # Bloomberg
+    if vtype == "bloomberg_iframe":
+        return (
+            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
+            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
+            f'<iframe src="{url}" style="position:absolute;top:0;left:0;width:100%;'
+            f'height:100%;border:0;" allowfullscreen></iframe></div>'
+        )
+
+    # Türk siteleri embed iframe (Milliyet, Hürriyet, CNN Türk, DHA, TRT Haber, AA, NTV, Habertürk, vs.)
+    if vtype == "tr_site_iframe":
+        return (
+            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
+            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
+            f'<iframe src="{url}" style="position:absolute;top:0;left:0;width:100%;'
+            f'height:100%;border:0;" allowfullscreen></iframe></div>'
+        )
+
+    # JSON-LD iframe
+    if vtype == "jsonld_iframe":
+        return (
+            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
+            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
+            f'<iframe src="{url}" style="position:absolute;top:0;left:0;width:100%;'
+            f'height:100%;border:0;" allowfullscreen></iframe></div>'
+        )
+
+    # Doğrudan video dosyası (mp4, webm, flv, m3u8)
     if vtype == "direct_video":
+        # HLS stream (m38u8) için hls.js desteği
+        if url.endswith(".m3u8"):
+            return (
+                f'<div class="video-embed" style="margin:24px 0;border-radius:12px;overflow:hidden;">'
+                f'<video controls style="width:100%;" playsinline>'
+                f'<source src="{url}" type="application/x-mpegURL">'
+                f'Tarayıcınız video desteklemiyor.</video></div>'
+            )
+        # WebM
+        if url.endswith(".webm"):
+            return (
+                f'<div class="video-embed" style="margin:24px 0;border-radius:12px;overflow:hidden;">'
+                f'<video controls style="width:100%;" playsinline>'
+                f'<source src="{url}" type="video/webm">'
+                f'Tarayıcınız video desteklemiyor.</video></div>'
+            )
+        # FLV (tarayıcı desteği yok, uyarı)
+        if url.endswith(".v"):
+            return (
+                f'<div class="video-embed" style="margin:24px 0;border-radius:12px;overflow:hidden;'
+                f'background:#1a1a2e;padding:20px;text-align:center;">'
+                f'<p style="color:#fff;margin:0 0 12px;">🎬 Video dosyası (FLV format)</p>'
+                f'<a href="{url}" target="_blank" rel="noopener" '
+                f'style="color:#4fc3f7;text-decoration:underline;">Videoyu indir/izle</a>'
+                f'</div>'
+            )
+        # MP4 / MOV / diğer (en yaygın)
+        mime = "video/mp4"
+        if url.endswith(".mov"):
+            mime = "video/quicktime"
         return (
             f'<div class="video-embed" style="margin:24px 0;border-radius:12px;overflow:hidden;">'
-            f'<video controls style="width:100%;"><source src="{url}">'
+            f'<video controls style="width:100%;" playsinline>'
+            f'<source src="{url}" type="{mime}">'
             f'Tarayıcınız video desteklemiyor.</video></div>'
         )
 
+    # Bilinmeyen tip → link olarak göster
     return f'<p><a href="{url}" target="_blank">Video izle</a></p>'
 
 
@@ -908,7 +1129,7 @@ def main():
     image_url = extract_image(html)
     content_images = extract_images(html, base_url=args.url)
     content = extract_content(html, url=args.url)
-    videos = detect_videos(html)
+    videos = detect_videos(html, base_url=args.url)
     videos = deduplicate_videos(videos)
 
     # İçerik fotoğraflarını metne yerleştir
