@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import type { Bindings } from './types';
 import { errorMiddleware } from './middleware/error';
 import { turkeyNowISO } from './utils/time';
+import { checkRateLimit } from './middleware/rate-limit';
 import newsRoutes from './routes/news.routes';
 import categoryRoutes from './routes/category.routes';
 import authRoutes from './routes/auth.routes';
@@ -14,9 +15,18 @@ import searchRoutes from './routes/search.routes';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// CORS middleware - must explicitly set origin when credentials: true
+// CORS middleware - strict origin allowlist
+const ALLOWED_ORIGINS = [
+  'https://newshaberglobal.vercel.app',
+  'https://newshaberglobal.com',
+  'https://www.newshaberglobal.com',
+];
+
 app.use('*', async (c, next) => {
-  const origin = c.req.header('Origin') || c.env.CORS_ORIGIN || '*';
+  const requestOrigin = c.req.header('Origin') || '';
+  const isAllowed = ALLOWED_ORIGINS.includes(requestOrigin);
+  const origin = isAllowed ? requestOrigin : ALLOWED_ORIGINS[0];
+
   const corsMiddleware = cors({
     origin: origin,
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -26,6 +36,21 @@ app.use('*', async (c, next) => {
     credentials: true,
   });
   return corsMiddleware(c, next);
+});
+
+// Security headers middleware
+app.use('*', async (c, next) => {
+  await next();
+  c.res.headers.set('X-Content-Type-Options', 'nosniff');
+  c.res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  c.res.headers.set('X-XSS-Protection', '1; mode=block');
+  c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  c.res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  c.res.headers.set(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://news-v2-api.karakaya-mk96.workers.dev; frame-src 'self' https://www.youtube.com https://www.dailymotion.com https://player.vimeo.com https://www.bloomberg.com;"
+  );
 });
 
 // Error handling middleware
@@ -56,9 +81,17 @@ app.route('/api/search', searchRoutes);
 
 // Test endpoint for cron (secured)
 app.get('/api/admin/trigger-cron', async (c) => {
-  // Simple secret check
+  // Rate limit: 10 per minute per IP
+  const clientIp = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+  const rateLimit = checkRateLimit('trigger', clientIp);
+  if (!rateLimit.allowed) {
+    return Response.json({ error: 'Too many requests' }, { status: 429 });
+  }
+
+  // Secret check from env
   const authHeader = c.req.header('Authorization') || '';
-  if (authHeader.indexOf('news-haber-global-2026-secret') === -1) {
+  const cronSecret = c.env.CRON_SECRET || '';
+  if (!cronSecret || authHeader.indexOf(cronSecret) === -1) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

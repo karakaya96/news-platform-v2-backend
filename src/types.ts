@@ -165,6 +165,7 @@ export interface Bindings {
   VAPID_SUBJECT?: string;
   SMTP_RELAY_URL?: string;
   SMTP_RELAY_SECRET?: string;
+  CRON_SECRET?: string;
 }
 
 // Subscription types

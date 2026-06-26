@@ -380,8 +380,8 @@ def extract_content(html: str, url: str = "") -> str:
     try:
         doc = Document(html, url=url)
         summary = doc.summary()
-        # HTML temizle
-        text = clean_html(summary)
+        # HTML sanitize (XSS korumalı whitelist)
+        text = sanitize_html(summary)
         text = re.sub(r'\n{3,}', '\n\n', text).strip()
         if len(text.strip()) > 100:
             return text[:8000]
@@ -412,7 +412,7 @@ def extract_content(html: str, url: str = "") -> str:
         paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", html, re.DOTALL | re.IGNORECASE)
         content = "\n\n".join(p for p in paragraphs if len(clean_html(p).strip()) > 40)
 
-    content = clean_html(content)
+    content = sanitize_html(content)
     content = re.sub(r'\n{3,}', '\n\n', content).strip()
     return content[:8000]
 
@@ -1018,8 +1018,119 @@ def create_news_via_api(data: dict, token: str) -> dict:
 # 6. YARDIMCI FONKSİYONLAR
 # ─────────────────────────────────────────────
 
+def sanitize_html(raw: str) -> str:
+    """HTML içeriği güvenli hale getirir — XSS koruması.
+
+    Whitelist yaklaşımı: sadece izin verilen tag ve attribute'ları bırakır.
+    Diğer tüm tag'ler strip edilir (içerikları korunur).
+    """
+    if not raw:
+        return ""
+
+    # İzin verilen taglar ve attribute'ları (whitelist)
+    ALLOWED_TAGS = {
+        'a': ['href', 'title', 'target', 'rel'],
+        'abbr': ['title'],
+        'b': [],
+        'blockquote': ['cite'],
+        'br': [],
+        'code': [],
+        'em': [],
+        'h1': [], 'h2': [], 'h3': [], 'h4': [], 'h5': [], 'h6': [],
+        'hr': [],
+        'i': [],
+        'img': ['src', 'alt', 'width', 'height', 'loading'],
+        'li': [],
+        'ol': ['start'],
+        'p': [],
+        'pre': [],
+        's': [],
+        'strong': [],
+        'sub': [],
+        'sup': [],
+        'table': [], 'thead': [], 'tbody': [], 'tr': [], 'th': [], 'td': [],
+        'u': [],
+        'ul': [],
+        'video': ['controls', 'style'],
+        'source': ['src', 'type'],
+        'div': ['class', 'style', 'id'],
+        'span': ['class', 'style'],
+        'iframe': [],  # iframe'ler ayrıca işlenir, burada strip
+    }
+
+    # URLscheme whitelist (javascript:, data:, vb: engelle)
+    ALLOWED_SCHEMES = {'http', 'https', 'mailto', 'tel'}
+
+    def _is_safe_url(url: str) -> bool:
+        """Güvenli URL scheme mi kontrol eder."""
+        if not url:
+            return False
+        url = url.strip().lower()
+        # Relative URL'ler güvenli
+        if url.startswith('/') or url.startswith('#'):
+            return True
+        scheme = url.split(':')[0] if ':' in url else 'https'
+        return scheme in ALLOWED_SCHEMES
+
+    def _clean_tag(match) -> str:
+        """Tek bir HTML tag'i sanitize eder — whitelist'e göre."""
+        full_tag = match.group(0)
+        tag_name = match.group(1).lower().strip('/')
+        # Closing tag
+        if full_tag.startswith('</'):
+            if tag_name in ALLOWED_TAGS:
+                return full_tag
+            return ''  # strip disallowed closing tag
+
+        # Extract attributes
+        attrs_str = match.group(2) or ''
+        clean_attrs = []
+        for attr_match in re.finditer(r'(\w+)(?:\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|(\S+)))?', attrs_str):
+            attr_name = attr_match.group(1).lower()
+            attr_val = attr_match.group(2) or attr_match.group(3) or attr_match.group(4) or ''
+            allowed = ALLOWED_TAGS.get(tag_name, [])
+            if attr_name in allowed:
+                # URL attribute'ları için scheme kontrolü
+                if attr_name in ('src', 'href', 'action'):
+                    if not _is_safe_url(attr_val):
+                        continue
+                    #noopener ekl
+                clean_attrs.append(f'{attr_name}="{attr_val}"')
+
+        attr_part = ' ' + ' '.join(clean_attrs) if clean_attrs else ''
+        return f'<{tag_name}{attr_part}>'
+
+    # 1. Script/style taglarını tamamen kaldır (child içerikler dahil)
+    text = re.sub(r'<script[^>]*>.*?</script>', '', raw, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # 2. Event handler'ları temizle (onerror, onclick, vb.)
+    text = re.sub(r'\son\w+\s*=\s*(?:"[^"]*"|\'[^\']*\'|\S+)', '', text, flags=re.IGNORECASE)
+
+    # 3. javascript: / data:text/html scheme'lerini temizle
+    text = re.sub(r'(href|src|action|formaction)\s*=\s*(?:"javascript:[^"]*"|\'javascript:[^\']*\')', '', text, flags=re.IGNORECASE)
+
+    # 4. HTML comment'leri kaldır (IE conditionals dahil)
+    text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+
+    # 5. iframe'leri güvenli şekilde işle (sadece iframe blokları strip, video embed'ler korunur)
+    # iframe'leri geçici olarak koru, videoları zaten ayırdık
+    text = re.sub(r'<iframe[^>]*>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'</iframe>', '', text, flags=re.IGNORECASE)
+
+    # 6. HTML tag'leri whitelist'e göre temizle
+    text = re.sub(r'</?\w+([^>]*)>', _clean_tag, text)
+
+    # 7. HTML entity decode
+    text = html_lib.unescape(text)
+
+    # 8. Çoklu satır temizliği
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def clean_html(raw: str) -> str:
-    """HTML taglarını temizler, bazı blok elementlerini paragrafa çevirir."""
+    """HTML taglarını temizler, bazı blok elementlerini paragrafa çevirir (eski metod, article body için)."""
     if not raw:
         return ""
 
