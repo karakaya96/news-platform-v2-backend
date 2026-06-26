@@ -64,8 +64,12 @@ export class NewsService {
       params.push(dateTo + 'T23:59:59Z');
     }
 
+    // Clamp limit to prevent abuse (max 100)
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safeOffset = Math.max((page - 1) * safeLimit, 0);
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const offset = (page - 1) * limit;
+    const offset = safeOffset;
 
     // Sort order
     let orderBy: string;
@@ -112,7 +116,7 @@ export class NewsService {
 
     const news = await this.db
       .prepare(dataQuery)
-      .bind(...params, limit, offset)
+      .bind(...params, safeLimit, safeOffset)
       .all<NewsWithRelations>();
 
     return { news: news.results || [], total };
@@ -355,7 +359,8 @@ export class NewsService {
   }
 
   async searchNews(query: string, page: number = 1, limit: number = 10): Promise<{ news: NewsWithRelations[]; total: number }> {
-    const offset = (page - 1) * limit;
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safeOffset = Math.max((page - 1) * safeLimit, 0);
     const searchTerm = `%${query}%`;
 
     const countResult = await this.db
@@ -380,7 +385,7 @@ export class NewsService {
         ORDER BY n.published_at DESC
         LIMIT ? OFFSET ?
       `)
-      .bind(searchTerm, searchTerm, limit, offset)
+      .bind(searchTerm, searchTerm, safeLimit, safeOffset)
       .all<NewsWithRelations>();
 
     return { news: result.results || [], total };
@@ -411,7 +416,9 @@ export class NewsService {
       sortBy = 'relevance',
     } = params;
 
-    const offset = (page - 1) * limit;
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safeOffset = Math.max((page - 1) * safeLimit, 0);
+    const offset = safeOffset;
     const conditions: string[] = ["n.status = 'published'"];
     const countParams: unknown[] = [];
     const joinParams: unknown[] = [];
@@ -547,6 +554,7 @@ export class NewsService {
   // Autocomplete suggestions
   async searchSuggest(query: string, limit: number = 5): Promise<{ id: number; title: string; slug: string }[]> {
     if (!query || query.trim().length < 2) return [];
+    const safeLimit = Math.min(Math.max(limit, 1), 20);
 
     const safeQuery = query.trim().replace(/['"]/g, '');
     // FTS5 prefix search
@@ -561,7 +569,7 @@ export class NewsService {
         ORDER BY rank
         LIMIT ?
       `)
-      .bind(ftsQuery, limit)
+      .bind(ftsQuery, safeLimit)
       .all<{ id: number; title: string; slug: string }>();
 
     return result.results || [];

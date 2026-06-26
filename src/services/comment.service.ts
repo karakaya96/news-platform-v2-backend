@@ -114,7 +114,8 @@ export class CommentService {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const offset = (page - 1) * limit;
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safeOffset = Math.max((page - 1) * safeLimit, 0);
 
     const countResult = await this.db
       .prepare(`SELECT COUNT(*) as total FROM comments c ${whereClause}`)
@@ -132,7 +133,7 @@ export class CommentService {
         ORDER BY c.created_at DESC
         LIMIT ? OFFSET ?
       `)
-      .bind(...params, limit, offset)
+      .bind(...params, safeLimit, safeOffset)
       .all<CommentWithNews>();
 
     return { comments: result.results || [], total };

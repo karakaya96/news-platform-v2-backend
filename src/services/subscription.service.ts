@@ -196,9 +196,10 @@ export class SubscriptionService {
 
   // Get recently sent notifications (admin)
   async getRecentNotifications(limit: number = 50): Promise<NotificationLog[]> {
+    const safeLimit = Math.min(Math.max(limit, 1), 200);
     const result = await this.db
       .prepare('SELECT * FROM notification_log ORDER BY created_at DESC LIMIT ?')
-      .bind(limit)
+      .bind(safeLimit)
       .all<NotificationLog>();
     return result.results || [];
   }
