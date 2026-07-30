@@ -4,6 +4,7 @@ import { CommentService } from '../services/comment.service';
 import { authMiddleware } from '../middleware/auth';
 import { success, error, paginated } from '../utils/response';
 import { z } from 'zod';
+import { sanitizeText, sanitizeEmail } from '../utils/sanitize';
 
 const commentRoutes = new Hono<{ Bindings: Bindings }>();
 
@@ -89,13 +90,27 @@ commentRoutes.post('/:newsId', async (c) => {
     }
   }
 
+  const sanitizedName = sanitizeText(parsed.data.author_name, 100);
+  const sanitizedEmail = sanitizeEmail(parsed.data.author_email);
+  const sanitizedContent = sanitizeText(parsed.data.content, 5000);
+
+  if (!sanitizedName) {
+    return error('Geçersiz isim', 400);
+  }
+  if (!sanitizedEmail) {
+    return error('Geçersiz e-posta', 400);
+  }
+  if (!sanitizedContent) {
+    return error('Yorum içeriği gerekli', 400);
+  }
+
   const service = new CommentService(c.env.DB);
   const comment = await service.createComment({
     news_id: newsId,
     parent_id: parsed.data.parent_id || null,
-    author_name: parsed.data.author_name,
-    author_email: parsed.data.author_email,
-    content: parsed.data.content,
+    author_name: sanitizedName,
+    author_email: sanitizedEmail,
+    content: sanitizedContent,
     ip_address: c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || null,
     user_agent: c.req.header('User-Agent') || null,
   });
@@ -183,13 +198,18 @@ commentRoutes.post('/admin/:id/reply', authMiddleware, async (c) => {
     return error('Yorum bulunamadı', 404);
   }
 
+  const sanitizedReply = sanitizeText(content.trim(), 5000);
+  if (!sanitizedReply) {
+    return error('Yanıt içeriği gerekli', 400);
+  }
+
   const service = new CommentService(c.env.DB);
   const reply = await service.replyToComment(
     parentId,
     parent.news_id,
-    content.trim(),
-    user.name || 'Admin',
-    user.email
+    sanitizedReply,
+    sanitizeText(user.name || 'Admin', 100),
+    sanitizeEmail(user.email) || 'noreply@newshaberglobal.com'
   );
 
   return success(reply, 201);

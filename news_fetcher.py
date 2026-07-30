@@ -756,24 +756,26 @@ def generate_video_embed(video: dict) -> str:
 
     # Doğrudan video dosyası (mp4, webm, flv, m3u8)
     if vtype == "direct_video":
-        # HLS stream (m38u8) için hls.js desteği
+        video_style = "position:absolute;top:0;left:0;right:0;bottom:0;width:100%;"
+        wrapper_style = "position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;margin:24px 0;"
+        # HLS stream (.m3u8) için hls.js desteği
         if url.endswith(".m3u8"):
             return (
-                f'<div class="video-embed" style="margin:24px 0;border-radius:12px;overflow:hidden;">'
-                f'<video controls style="width:100%;" playsinline>'
+                f'<div class="video-embed" style="{wrapper_style}">'
+                f'<video controls style="{video_style}" playsinline>'
                 f'<source src="{url}" type="application/x-mpegURL">'
                 f'Tarayıcınız video desteklemiyor.</video></div>'
             )
         # WebM
         if url.endswith(".webm"):
             return (
-                f'<div class="video-embed" style="margin:24px 0;border-radius:12px;overflow:hidden;">'
-                f'<video controls style="width:100%;" playsinline>'
+                f'<div class="video-embed" style="{wrapper_style}">'
+                f'<video controls style="{video_style}" playsinline>'
                 f'<source src="{url}" type="video/webm">'
                 f'Tarayıcınız video desteklemiyor.</video></div>'
             )
         # FLV (tarayıcı desteği yok, uyarı)
-        if url.endswith(".v"):
+        if url.endswith(".flv"):
             return (
                 f'<div class="video-embed" style="margin:24px 0;border-radius:12px;overflow:hidden;'
                 f'background:#1a1a2e;padding:20px;text-align:center;">'
@@ -787,8 +789,8 @@ def generate_video_embed(video: dict) -> str:
         if url.endswith(".mov"):
             mime = "video/quicktime"
         return (
-            f'<div class="video-embed" style="margin:24px 0;border-radius:12px;overflow:hidden;">'
-            f'<video controls style="width:100%;" playsinline>'
+            f'<div class="video-embed" style="{wrapper_style}">'
+            f'<video controls style="{video_style}" playsinline>'
             f'<source src="{url}" type="{mime}">'
             f'Tarayıcınız video desteklemiyor.</video></div>'
         )
@@ -1055,7 +1057,7 @@ def sanitize_html(raw: str) -> str:
         'source': ['src', 'type'],
         'div': ['class', 'style', 'id'],
         'span': ['class', 'style'],
-        'iframe': [],  # iframe'ler ayrıca işlenir, burada strip
+        'iframe': ['src', 'style', 'allowfullscreen', 'width', 'height', 'frameborder', 'allow'],
     }
 
     # URLscheme whitelist (javascript:, data:, vb: engelle)
@@ -1113,13 +1115,8 @@ def sanitize_html(raw: str) -> str:
     # 4. HTML comment'leri kaldır (IE conditionals dahil)
     text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
 
-    # 5. iframe'leri güvenli şekilde işle (sadece iframe blokları strip, video embed'ler korunur)
-    # iframe'leri geçici olarak koru, videoları zaten ayırdık
-    text = re.sub(r'<iframe[^>]*>', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'</iframe>', '', text, flags=re.IGNORECASE)
-
-    # 6. HTML tag'leri whitelist'e göre temizle
-    text = re.sub(r'</?\w+([^>]*)>', _clean_tag, text)
+    # 5. HTML tag'leri whitelist'e göre temizle (iframe dahil — güvenli src'ler korunur)
+    text = re.sub(r'</?(\w+)([^>]*)>', _clean_tag, text)
 
     # 7. HTML entity decode
     text = html_lib.unescape(text)

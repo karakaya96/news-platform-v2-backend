@@ -3,6 +3,7 @@ import type { Bindings } from '../types';
 import { SubscriptionService } from '../services/subscription.service';
 import { authMiddleware } from '../middleware/auth';
 import { success, error, paginated } from '../utils/response';
+import { sanitizeEmail, sanitizeUrl } from '../utils/sanitize';
 import { turkeyNowSQL } from '../utils/time';
 import { z } from 'zod';
 
@@ -46,6 +47,11 @@ subscriptionRoutes.post('/', async (c) => {
     if (!data.email) {
       return error('E-posta aboneliği için e-posta adresi gerekli', 400);
     }
+    const cleanEmail = sanitizeEmail(data.email);
+    if (!cleanEmail) {
+      return error('Geçersiz e-posta adresi', 400);
+    }
+    data.email = cleanEmail;
   }
 
   const service = new SubscriptionService(c.env.DB);
