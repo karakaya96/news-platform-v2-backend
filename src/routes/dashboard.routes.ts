@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
-import type { Bindings } from '../types';
 import { authMiddleware } from '../middleware/auth';
-import { success, error } from '../utils/response';
+import type { Bindings } from '../types';
+import { error, success } from '../utils/response';
 
 const dashboardRoutes = new Hono<{ Bindings: Bindings }>();
 
 // GET /api/dashboard/stats - Admin only
 dashboardRoutes.get('/stats', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user || user.role !== 'admin') {
+  if (user?.role !== 'admin') {
     return error('Unauthorized', 403);
   }
 
@@ -63,7 +63,7 @@ dashboardRoutes.get('/stats', authMiddleware, async (c) => {
 
   // Subscription stats
   const activeSubscriptions = await db
-    .prepare("SELECT COUNT(*) as count FROM subscriptions WHERE is_active = 1")
+    .prepare('SELECT COUNT(*) as count FROM subscriptions WHERE is_active = 1')
     .first<{ count: number }>();
 
   const browserSubscriptions = await db

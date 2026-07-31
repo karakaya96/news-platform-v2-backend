@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
-import type { Bindings } from '../types';
-import { SubscriptionService } from '../services/subscription.service';
-import { authMiddleware } from '../middleware/auth';
-import { success, error, paginated } from '../utils/response';
-import { sanitizeEmail, sanitizeUrl } from '../utils/sanitize';
-import { turkeyNowSQL } from '../utils/time';
 import { z } from 'zod';
+import { authMiddleware } from '../middleware/auth';
+import { SubscriptionService } from '../services/subscription.service';
+import type { Bindings, CreateSubscriptionDto, SubscriptionWithCategories } from '../types';
+import { error, success } from '../utils/response';
+import { sanitizeEmail } from '../utils/sanitize';
+import { turkeyNowSQL } from '../utils/time';
 
 const subscriptionRoutes = new Hono<{ Bindings: Bindings }>();
 
@@ -18,7 +18,7 @@ const subscribeSchema = z.object({
   categories: z.array(z.string()).optional(),
 });
 
-const emailUnsubscribeSchema = z.object({
+const _emailUnsubscribeSchema = z.object({
   email: z.string().email(),
   token: z.string().optional(),
 });
@@ -33,7 +33,7 @@ subscriptionRoutes.post('/', async (c) => {
   const parsed = subscribeSchema.safeParse(body);
 
   if (!parsed.success) {
-    return error(parsed.error.errors[0].message, 400);
+    return error(parsed.error.issues[0].message, 400);
   }
 
   const data = parsed.data;
@@ -59,8 +59,9 @@ subscriptionRoutes.post('/', async (c) => {
   // Check if email already exists (any status) before creating
   let existingStatus: 'active' | 'inactive' | 'none' = 'none';
   if (data.type === 'email' && data.email) {
-    const existing = await c.env.DB
-      .prepare('SELECT is_active FROM subscriptions WHERE type = ? AND email = ? ORDER BY id DESC LIMIT 1')
+    const existing = await c.env.DB.prepare(
+      'SELECT is_active FROM subscriptions WHERE type = ? AND email = ? ORDER BY id DESC LIMIT 1'
+    )
       .bind('email', data.email.toLowerCase())
       .first<{ is_active: number }>();
     if (existing) {
@@ -68,7 +69,7 @@ subscriptionRoutes.post('/', async (c) => {
     }
   }
 
-  const subscription = await service.createSubscription(data as any);
+  const subscription = await service.createSubscription(data as CreateSubscriptionDto);
 
   // Determine message and whether to send confirmation email
   let message: string;
@@ -83,9 +84,10 @@ subscriptionRoutes.post('/', async (c) => {
     sendConfirmationEmail = true;
   } else {
     // Brand new subscription
-    message = data.type === 'browser'
-      ? 'Bildirim aboneliği başarıyla oluşturuldu!'
-      : 'E-posta aboneliği başarıyla oluşturuldu!';
+    message =
+      data.type === 'browser'
+        ? 'Bildirim aboneliği başarıyla oluşturuldu!'
+        : 'E-posta aboneliği başarıyla oluşturuldu!';
     sendConfirmationEmail = true;
   }
 
@@ -146,14 +148,17 @@ subscriptionRoutes.post('/', async (c) => {
     }
   }
 
-  return success({
-    message,
-    subscription: {
-      id: subscription.id,
-      type: subscription.type,
-      categories: JSON.parse(subscription.categories || '[]'),
+  return success(
+    {
+      message,
+      subscription: {
+        id: subscription.id,
+        type: subscription.type,
+        categories: JSON.parse(subscription.categories || '[]'),
+      },
     },
-  }, existingStatus === 'active' ? 200 : 201);
+    existingStatus === 'active' ? 200 : 201
+  );
 });
 
 // POST /api/subscribe/unsubscribe - Unsubscribe
@@ -174,8 +179,9 @@ subscriptionRoutes.post('/unsubscribe', async (c) => {
   // Email unsubscribe
   if (body.email) {
     // Check if subscription exists (any status)
-    const existing = await c.env.DB
-      .prepare('SELECT is_active FROM subscriptions WHERE type = ? AND email = ? ORDER BY id DESC LIMIT 1')
+    const existing = await c.env.DB.prepare(
+      'SELECT is_active FROM subscriptions WHERE type = ? AND email = ? ORDER BY id DESC LIMIT 1'
+    )
       .bind('email', body.email.toLowerCase())
       .first<{ is_active: number }>();
 
@@ -233,7 +239,7 @@ subscriptionRoutes.get('/admin/all', authMiddleware, async (c) => {
   const status = c.req.query('status'); // 'active', 'inactive', or 'all'
   const service = new SubscriptionService(c.env.DB);
 
-  let subscriptions;
+  let subscriptions: SubscriptionWithCategories[] = [];
   if (type === 'browser' || type === 'email') {
     const all = await service.getAllSubscriptions();
     subscriptions = all.filter((s) => s.type === type);
@@ -258,9 +264,10 @@ subscriptionRoutes.post('/admin/:id/activate', authMiddleware, async (c) => {
     return error('Yetkisiz erişim', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
-  const result = await c.env.DB
-    .prepare('UPDATE subscriptions SET is_active = 1, updated_at = ? WHERE id = ?')
+  const id = Number.parseInt(c.req.param('id'), 10);
+  const result = await c.env.DB.prepare(
+    'UPDATE subscriptions SET is_active = 1, updated_at = ? WHERE id = ?'
+  )
     .bind(turkeyNowSQL(), id)
     .run();
 
@@ -277,9 +284,10 @@ subscriptionRoutes.post('/admin/:id/deactivate', authMiddleware, async (c) => {
     return error('Yetkisiz erişim', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
-  const result = await c.env.DB
-    .prepare('UPDATE subscriptions SET is_active = 0, updated_at = ? WHERE id = ?')
+  const id = Number.parseInt(c.req.param('id'), 10);
+  const result = await c.env.DB.prepare(
+    'UPDATE subscriptions SET is_active = 0, updated_at = ? WHERE id = ?'
+  )
     .bind(turkeyNowSQL(), id)
     .run();
 
@@ -296,11 +304,8 @@ subscriptionRoutes.delete('/admin/:id', authMiddleware, async (c) => {
     return error('Yetkisiz erişim', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
-  const result = await c.env.DB
-    .prepare('DELETE FROM subscriptions WHERE id = ?')
-    .bind(id)
-    .run();
+  const id = Number.parseInt(c.req.param('id'), 10);
+  const result = await c.env.DB.prepare('DELETE FROM subscriptions WHERE id = ?').bind(id).run();
 
   if (result.meta.changes > 0) {
     return success({ message: 'Abonelik kalıcı olarak silindi' });
@@ -313,7 +318,7 @@ subscriptionRoutes.get('/admin/notifications', authMiddleware, async (c) => {
     return error('Yetkisiz erişim', 403);
   }
 
-  const limit = parseInt(c.req.query('limit') || '50');
+  const limit = Number.parseInt(c.req.query('limit') || '50', 10);
   const service = new SubscriptionService(c.env.DB);
   const notifications = await service.getRecentNotifications(limit);
 
@@ -327,7 +332,7 @@ subscriptionRoutes.put('/admin/:id/deactivate', authMiddleware, async (c) => {
     return error('Yetkisiz erişim', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
+  const id = Number.parseInt(c.req.param('id'), 10);
   const service = new SubscriptionService(c.env.DB);
   const result = await service.unsubscribe(id);
 
@@ -344,7 +349,7 @@ subscriptionRoutes.delete('/admin/notifications/:id', authMiddleware, async (c) 
     return error('Yetkisiz erişim', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
+  const id = Number.parseInt(c.req.param('id'), 10);
   const service = new SubscriptionService(c.env.DB);
   const result = await service.deleteNotification(id);
 

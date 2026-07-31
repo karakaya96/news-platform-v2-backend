@@ -6,7 +6,7 @@
  * Plain text sanitize — kullanici adi, yorum gibi text alanlarini temizler.
  * HTML tag'lerini tamamen kaldirir, entity'leri escape eder.
  */
-export function sanitizeText(input: string | null | undefined, maxLen: number = 5000): string {
+export function sanitizeText(input: string | null | undefined, maxLen = 5000): string {
   if (!input) return '';
 
   // 1. HTML tag'lerini tamamen strip et
@@ -32,16 +32,16 @@ export function sanitizeText(input: string | null | undefined, maxLen: number = 
  */
 export function sanitizeEmail(email: string): string | null {
   if (!email) return null;
-  email = email.trim().toLowerCase();
+  const cleanEmail = email.trim().toLowerCase();
 
   // Basit email format kontrolu
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) return null;
+  if (!emailRegex.test(cleanEmail)) return null;
 
   // Header injection temizlik
-  if (email.includes('\\n') || email.includes('\\r')) return null;
+  if (cleanEmail.includes('\n') || cleanEmail.includes('\r')) return null;
 
-  return email;
+  return cleanEmail;
 }
 
 /**
@@ -49,22 +49,22 @@ export function sanitizeEmail(email: string): string | null {
  */
 export function sanitizeUrl(url: string): string | null {
   if (!url) return null;
-  url = url.trim();
+  const cleanUrl = url.trim();
 
   // Relative URL'ler izinli
-  if (url.startsWith('/') || url.startsWith('#')) {
-    return url;
+  if (cleanUrl.startsWith('/') || cleanUrl.startsWith('#')) {
+    return cleanUrl;
   }
 
   // Sadece http/https
   try {
-    const u = new URL(url);
+    const u = new URL(cleanUrl);
     if (u.protocol === 'http:' || u.protocol === 'https:') {
       return u.toString();
     }
   } catch {
     // invalid URL
+    return null;
   }
-
   return null;
 }

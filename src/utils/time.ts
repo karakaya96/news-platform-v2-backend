@@ -5,7 +5,7 @@
  */
 
 function pad2(n: number): string {
-  return n < 10 ? '0' + n : '' + n;
+  return n < 10 ? `0${n}` : `${n}`;
 }
 
 /** Returns current time as ISO string in UTC (for published_at) */

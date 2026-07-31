@@ -1,8 +1,8 @@
-import { Context, Next } from 'hono';
-import { error } from '../utils/response';
+import type { Context, Next } from 'hono';
 import type { Bindings } from '../types';
+import { error } from '../utils/response';
 
-export async function errorMiddleware(c: Context<{ Bindings: Bindings }>, next: Next) {
+export async function errorMiddleware(_c: Context<{ Bindings: Bindings }>, next: Next) {
   try {
     await next();
   } catch (err) {

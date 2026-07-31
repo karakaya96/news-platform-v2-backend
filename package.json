@@ -9,17 +9,27 @@
     "db:seed": "wrangler d1 execute news-platform-db --local --file=./db/seed.sql",
     "db:init:remote": "wrangler d1 execute news-platform-db --remote --file=./db/schema.sql",
     "db:seed:remote": "wrangler d1 execute news-platform-db --remote --file=./db/seed.sql",
-    "typegen": "wrangler types --env-interface CloudflareEnv env.d.ts"
+    "typegen": "wrangler types --env-interface CloudflareEnv env.d.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
     "@cloudflare/workers-types": "^4.20240614.0",
+    "@types/node": "^26.1.2",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.4.0",
     "wrangler": "^3.60.0"
   },
   "dependencies": {
     "@block65/webcrypto-web-push": "^1.0.2",
+    "@hono/swagger-ui": "^0.6.1",
+    "@hono/zod-openapi": "^1.5.1",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.4.0",
     "jose": "^5.4.0",
-    "zod": "^3.23.0"
+    "zod": "^4.4.3"
   }
 }

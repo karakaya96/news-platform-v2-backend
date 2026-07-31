@@ -1,26 +1,19 @@
 import { Hono } from 'hono';
-import type { Bindings } from '../types';
-import { AuthService } from '../services/auth.service';
 import { authMiddleware } from '../middleware/auth';
-import { success, error } from '../utils/response';
+import { createRateLimiter } from '../middleware/rate-limit';
+import { AuthService } from '../services/auth.service';
+import type { Bindings } from '../types';
+import { error, success } from '../utils/response';
 import { loginSchema } from '../utils/validation';
-import { checkRateLimit } from '../middleware/rate-limit';
 
 const authRoutes = new Hono<{ Bindings: Bindings }>();
 
 // POST /api/auth/login
-authRoutes.post('/login', async (c) => {
-  // Rate limit: 5 attempts per 15 minutes per IP
-  const clientIp = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
-  const rateLimit = checkRateLimit('login', clientIp);
-  if (!rateLimit.allowed) {
-    return error('Too many login attempts. Please try again later.', 429);
-  }
-
+authRoutes.post('/login', createRateLimiter('login'), async (c) => {
   const body = await c.req.json();
   const parsed = loginSchema.safeParse(body);
   if (!parsed.success) {
-    return error(parsed.error.errors[0].message, 400);
+    return error(parsed.error.issues[0].message, 400);
   }
 
   const service = new AuthService(c.env.DB);

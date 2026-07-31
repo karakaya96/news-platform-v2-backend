@@ -1,10 +1,15 @@
-import type { Subscription, SubscriptionWithCategories, CreateSubscriptionDto, NotificationLog } from '../types';
+import type {
+  CreateSubscriptionDto,
+  NotificationLog,
+  SubscriptionRow,
+  SubscriptionWithCategories,
+} from '../types';
 
 export class SubscriptionService {
   constructor(private db: import('@cloudflare/workers-types').D1Database) {}
 
   // Create a new subscription
-  async createSubscription(data: CreateSubscriptionDto): Promise<Subscription> {
+  async createSubscription(data: CreateSubscriptionDto): Promise<SubscriptionRow> {
     const categories = JSON.stringify(data.categories || []);
 
     // For browser: first delete ALL existing records for this endpoint (prevents duplicates from re-subscribe)
@@ -18,16 +23,20 @@ export class SubscriptionService {
     if (data.type === 'email' && data.email) {
       // Check for ANY existing subscription (active or inactive)
       const existing = await this.db
-        .prepare('SELECT id, is_active FROM subscriptions WHERE type = ? AND email = ? ORDER BY id DESC LIMIT 1')
+        .prepare(
+          'SELECT id, is_active FROM subscriptions WHERE type = ? AND email = ? ORDER BY id DESC LIMIT 1'
+        )
         .bind('email', data.email.toLowerCase())
         .first<{ id: number; is_active: number }>();
       if (existing) {
         // Reactivate if inactive, update categories
         await this.db
-          .prepare('UPDATE subscriptions SET categories = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .prepare(
+            'UPDATE subscriptions SET categories = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+          )
           .bind(categories, existing.id)
           .run();
-        return this.getSubscriptionById(existing.id) as Promise<Subscription>;
+        return this.getSubscriptionById(existing.id) as Promise<SubscriptionRow>;
       }
     }
 
@@ -46,18 +55,20 @@ export class SubscriptionService {
       )
       .run();
 
-    return this.getSubscriptionById(result.meta.last_row_id) as Promise<Subscription>;
+    return this.getSubscriptionById(result.meta.last_row_id) as Promise<SubscriptionRow>;
   }
 
-  async getSubscriptionById(id: number): Promise<Subscription | null> {
+  async getSubscriptionById(id: number): Promise<SubscriptionRow | null> {
     return this.db
       .prepare('SELECT * FROM subscriptions WHERE id = ?')
       .bind(id)
-      .first<Subscription>();
+      .first<SubscriptionRow>();
   }
 
   // Get active subscriptions for a specific category
-  async getActiveSubscriptionsByCategory(categorySlug: string): Promise<SubscriptionWithCategories[]> {
+  async getActiveSubscriptionsByCategory(
+    categorySlug: string
+  ): Promise<SubscriptionWithCategories[]> {
     const result = await this.db
       .prepare(`
         SELECT * FROM subscriptions 
@@ -65,7 +76,7 @@ export class SubscriptionService {
         AND (categories = '[]' OR categories LIKE ?)
       `)
       .bind(`%${categorySlug}%`)
-      .all<Subscription>();
+      .all<SubscriptionRow>();
 
     return (result.results || []).map((s) => ({
       ...s,
@@ -77,7 +88,7 @@ export class SubscriptionService {
   async getAllActiveSubscriptions(): Promise<SubscriptionWithCategories[]> {
     const result = await this.db
       .prepare('SELECT * FROM subscriptions WHERE is_active = 1 ORDER BY created_at DESC')
-      .all<Subscription>();
+      .all<SubscriptionRow>();
 
     return (result.results || []).map((s) => ({
       ...s,
@@ -89,7 +100,7 @@ export class SubscriptionService {
   async getAllSubscriptions(): Promise<SubscriptionWithCategories[]> {
     const result = await this.db
       .prepare('SELECT * FROM subscriptions ORDER BY created_at DESC')
-      .all<Subscription>();
+      .all<SubscriptionRow>();
 
     return (result.results || []).map((s) => ({
       ...s,
@@ -100,7 +111,9 @@ export class SubscriptionService {
   // Unsubscribe (deactivate)
   async unsubscribe(id: number): Promise<boolean> {
     const result = await this.db
-      .prepare('UPDATE subscriptions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .prepare(
+        'UPDATE subscriptions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+      )
       .bind(id)
       .run();
     return result.meta.changes > 0;
@@ -110,7 +123,9 @@ export class SubscriptionService {
   // Also reactivates if already inactive (idempotent)
   async unsubscribeByEmail(email: string): Promise<boolean> {
     const result = await this.db
-      .prepare('UPDATE subscriptions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE type = ? AND email = ? AND is_active = 1')
+      .prepare(
+        'UPDATE subscriptions SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE type = ? AND email = ? AND is_active = 1'
+      )
       .bind('email', email.toLowerCase())
       .run();
     return result.meta.changes > 0;
@@ -133,11 +148,23 @@ export class SubscriptionService {
     emailSubscriptions: number;
     notificationsSent: number;
   }> {
-    const total = await this.db.prepare('SELECT COUNT(*) as count FROM subscriptions').first<{ count: number }>();
-    const active = await this.db.prepare('SELECT COUNT(*) as count FROM subscriptions WHERE is_active = 1').first<{ count: number }>();
-    const browser = await this.db.prepare("SELECT COUNT(*) as count FROM subscriptions WHERE type = 'browser' AND is_active = 1").first<{ count: number }>();
-    const email = await this.db.prepare("SELECT COUNT(*) as count FROM subscriptions WHERE type = 'email' AND is_active = 1").first<{ count: number }>();
-    const sent = await this.db.prepare("SELECT COUNT(*) as count FROM notification_log WHERE status = 'sent'").first<{ count: number }>();
+    const total = await this.db
+      .prepare('SELECT COUNT(*) as count FROM subscriptions')
+      .first<{ count: number }>();
+    const active = await this.db
+      .prepare('SELECT COUNT(*) as count FROM subscriptions WHERE is_active = 1')
+      .first<{ count: number }>();
+    const browser = await this.db
+      .prepare(
+        "SELECT COUNT(*) as count FROM subscriptions WHERE type = 'browser' AND is_active = 1"
+      )
+      .first<{ count: number }>();
+    const email = await this.db
+      .prepare("SELECT COUNT(*) as count FROM subscriptions WHERE type = 'email' AND is_active = 1")
+      .first<{ count: number }>();
+    const sent = await this.db
+      .prepare("SELECT COUNT(*) as count FROM notification_log WHERE status = 'sent'")
+      .first<{ count: number }>();
 
     return {
       totalSubscriptions: total?.count || 0,
@@ -174,7 +201,11 @@ export class SubscriptionService {
     return result.meta.last_row_id;
   }
 
-  async updateNotificationStatus(id: number, status: 'sent' | 'failed', errorMessage?: string): Promise<void> {
+  async updateNotificationStatus(
+    id: number,
+    status: 'sent' | 'failed',
+    errorMessage?: string
+  ): Promise<void> {
     await this.db
       .prepare(`
         UPDATE notification_log 
@@ -195,7 +226,7 @@ export class SubscriptionService {
   }
 
   // Get recently sent notifications (admin)
-  async getRecentNotifications(limit: number = 50): Promise<NotificationLog[]> {
+  async getRecentNotifications(limit = 50): Promise<NotificationLog[]> {
     const safeLimit = Math.min(Math.max(limit, 1), 200);
     const result = await this.db
       .prepare('SELECT * FROM notification_log ORDER BY created_at DESC LIMIT ?')

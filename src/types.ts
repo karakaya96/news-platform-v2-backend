@@ -168,15 +168,21 @@ export interface Bindings {
   CRON_SECRET?: string;
 }
 
+// Cron event type
+export interface CronEvent {
+  scheduledTime: number;
+  cron: string;
+}
+
 // Subscription types
-export interface Subscription {
+export interface SubscriptionRow {
   id: number;
   type: 'browser' | 'email';
   endpoint: string | null;
   p256dh: string | null;
   auth: string | null;
   email: string | null;
-  categories: string; // JSON array
+  categories: string;
   is_active: number;
   ip_address: string | null;
   user_agent: string | null;
@@ -184,7 +190,31 @@ export interface Subscription {
   updated_at: string;
 }
 
-export interface SubscriptionWithCategories extends Omit<Subscription, 'categories'> {
+export interface NewsRow {
+  id: number;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  content: string;
+  image_url: string | null;
+  image_alt: string | null;
+  category_id: number;
+  author_id: number;
+  status: 'draft' | 'published' | 'archived';
+  is_featured: number;
+  is_breaking: number;
+  view_count: number;
+  seo_title: string | null;
+  seo_description: string | null;
+  seo_keywords: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  category_slug?: string;
+  category_name?: string;
+}
+
+export interface SubscriptionWithCategories extends Omit<SubscriptionRow, 'categories'> {
   categories: string[];
 }
 
@@ -209,4 +239,14 @@ export interface NotificationLog {
   error_message: string | null;
   created_at: string;
   sent_at: string | null;
+}
+
+export interface NotificationLogWithEmail extends NotificationLog {
+  email: string;
+}
+
+export interface VapidConfig {
+  VAPID_PUBLIC_KEY: string;
+  VAPID_PRIVATE_KEY: string;
+  VAPID_SUBJECT?: string;
 }

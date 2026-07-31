@@ -1,19 +1,37 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import type { Bindings } from './types';
 import { errorMiddleware } from './middleware/error';
-import { turkeyNowISO } from './utils/time';
 import { checkRateLimit } from './middleware/rate-limit';
-import newsRoutes from './routes/news.routes';
-import categoryRoutes from './routes/category.routes';
+import { securityHeaders } from './middleware/security-headers';
+import { createOpenAPIApp, setupSwagger } from './openapi';
 import authRoutes from './routes/auth.routes';
-import uploadRoutes from './routes/upload.routes';
-import dashboardRoutes from './routes/dashboard.routes';
+import categoryRoutes from './routes/category.routes';
 import commentRoutes from './routes/comment.routes';
-import subscriptionRoutes from './routes/subscription.routes';
+import dashboardRoutes from './routes/dashboard.routes';
+import newsRoutes from './routes/news.routes';
 import searchRoutes from './routes/search.routes';
+import subscriptionRoutes from './routes/subscription.routes';
+import uploadRoutes from './routes/upload.routes';
+import type {
+  Bindings,
+  CronEvent,
+  NewsRow,
+  NotificationLog,
+  NotificationLogWithEmail,
+  SubscriptionRow,
+  VapidConfig,
+} from './types';
+import { turkeyNowISO } from './utils/time';
 
+// Create main app with regular Hono for now (routes work)
 const app = new Hono<{ Bindings: Bindings }>();
+
+// Also create OpenAPI app for documentation
+const openApiApp = createOpenAPIApp();
+setupSwagger(openApiApp);
+
+// Mount the OpenAPI docs at /api-docs (so /api-docs/doc and /api-docs/docs work)
+app.route('/api-docs', openApiApp);
 
 // CORS middleware - strict origin allowlist
 const ALLOWED_ORIGINS = [
@@ -39,19 +57,7 @@ app.use('*', async (c, next) => {
 });
 
 // Security headers middleware
-app.use('*', async (c, next) => {
-  await next();
-  c.res.headers.set('X-Content-Type-Options', 'nosniff');
-  c.res.headers.set('X-Frame-Options', 'SAMEORIGIN');
-  c.res.headers.set('X-XSS-Protection', '1; mode=block');
-  c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  c.res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  c.res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  c.res.headers.set(
-    'Content-Security-Policy',
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://news-v2-api.karakaya-mk96.workers.dev; frame-src 'self' https://www.youtube.com https://www.dailymotion.com https://player.vimeo.com https://www.bloomberg.com;"
-  );
-});
+app.use('*', securityHeaders());
 
 // Error handling middleware
 app.use('*', errorMiddleware);
@@ -65,7 +71,7 @@ app.use('*', async (c, next) => {
 });
 
 // Health check
-app.get('/api/health', (c) => {
+app.get('/api/health', (_c) => {
   return Response.json({ status: 'ok', timestamp: turkeyNowISO() });
 });
 
@@ -102,7 +108,8 @@ app.get('/api/admin/trigger-cron', async (c) => {
   const results: string[] = [];
 
   // 1. Find recently published news
-  const recentlyPublished = await db.prepare(`
+  const recentlyPublished = await db
+    .prepare(`
     SELECT n.id, n.title, n.slug, n.excerpt, n.category_id, n.published_at, c.slug as category_slug
     FROM news n
     LEFT JOIN categories c ON n.category_id = c.id
@@ -111,28 +118,37 @@ app.get('/api/admin/trigger-cron', async (c) => {
     AND n.published_at <= strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
     AND NOT EXISTS (SELECT 1 FROM notification_log nl WHERE nl.news_id = n.id)
     ORDER BY n.published_at DESC LIMIT 5
-  `).all();
+  `)
+    .all();
 
-  const newsItems = recentlyPublished.results || [];
+  const newsItems: NewsRow[] = (recentlyPublished.results as unknown as NewsRow[]) || [];
   results.push(`Found ${newsItems.length} news in window`);
 
-  for (const news of newsItems as any[]) {
+  for (const news of newsItems) {
     results.push(`→ News #${news.id}: "${news.title}" (cat: ${news.category_slug})`);
 
-    const subs = await db.prepare(`
-      SELECT * FROM subscriptions WHERE is_active = 1 AND (categories = '[]' OR categories LIKE ?)
-    `).bind(`%${news.category_slug}%`).all();
+    const subs = await db
+      .prepare(`
+        SELECT * FROM subscriptions WHERE is_active = 1 AND (categories = '[]' OR categories LIKE ?)
+      `)
+      .bind(`%${news.category_slug}%`)
+      .all();
 
-    for (const sub of (subs.results || []) as any[]) {
+    for (const sub of (subs.results || []) as unknown as SubscriptionRow[]) {
       if (sub.type === 'email' && sub.email) {
-        const notifResult = await db.prepare(`
+        const notifResult = await db
+          .prepare(`
           INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
           VALUES (?, 'email', ?, ?, ?, ?, 'pending')
-        `).bind(
-          sub.id, `📰 ${news.title}`,
-          news.excerpt || 'Yeni haberi okumak için tıklayın',
-          `${siteUrl}/news/${news.slug}`, news.id
-        ).run();
+        `)
+          .bind(
+            sub.id,
+            `📰 ${news.title}`,
+            news.excerpt || 'Yeni haberi okumak için tıklayın',
+            `${siteUrl}/news/${news.slug}`,
+            news.id
+          )
+          .run();
 
         const lastId = notifResult.meta?.last_row_id;
         results.push(`  Inserted notif #${lastId} for ${sub.email}, news_id=${news.id}`);
@@ -144,7 +160,8 @@ app.get('/api/admin/trigger-cron', async (c) => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                secret: relaySecret, to: sub.email,
+                secret: relaySecret,
+                to: sub.email,
                 subject: `📰 ${news.title}`,
                 html: `<h2>${news.title}</h2><p>${news.excerpt || ''}</p><a href="${siteUrl}/news/${news.slug}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Haberi Oku →</a>`,
                 unsubscribeUrl,
@@ -152,31 +169,57 @@ app.get('/api/admin/trigger-cron', async (c) => {
             });
 
             if (res.ok) {
-              if (lastId) await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(lastId).run();
+              if (lastId)
+                await db
+                  .prepare(
+                    `UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`
+                  )
+                  .bind(lastId)
+                  .run();
               results.push(`  ✅ Sent to ${sub.email}`);
             } else {
               const errText = await res.text();
-              if (lastId) await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(errText, lastId).run();
+              if (lastId)
+                await db
+                  .prepare(
+                    `UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`
+                  )
+                  .bind(errText, lastId)
+                  .run();
               results.push(`  ❌ Failed for ${sub.email}: ${errText}`);
             }
-          } catch (err: any) {
-            if (lastId) await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), lastId).run();
-            results.push(`  ❌ Error: ${err.message}`);
+          } catch (err: unknown) {
+            if (lastId)
+              await db
+                .prepare(
+                  `UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`
+                )
+                .bind(String(err), lastId)
+                .run();
+            const errMsg = err instanceof Error ? err.message : 'Unknown error';
+            results.push(`  ❌ Error: ${errMsg}`);
           }
         }
       } else if (sub.type === 'browser') {
         // Create browser push notification log (pending)
-        const notifResult = await db.prepare(`
+        const notifResult = await db
+          .prepare(`
           INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
           VALUES (?, 'browser', ?, ?, ?, ?, 'pending')
-        `).bind(
-          sub.id, news.title,
-          news.excerpt || 'Yeni haberi okumak için tıklayın',
-          `${siteUrl}/news/${news.slug}`, news.id
-        ).run();
+        `)
+          .bind(
+            sub.id,
+            news.title,
+            news.excerpt || 'Yeni haberi okumak için tıklayın',
+            `${siteUrl}/news/${news.slug}`,
+            news.id
+          )
+          .run();
 
         const lastId = notifResult.meta?.last_row_id;
-        results.push(`  🔔 Browser notif #${lastId} created for endpoint ${sub.endpoint?.substring(0, 40)}...`);
+        results.push(
+          `  🔔 Browser notif #${lastId} created for endpoint ${sub.endpoint?.substring(0, 40)}...`
+        );
       }
     }
   }
@@ -185,7 +228,7 @@ app.get('/api/admin/trigger-cron', async (c) => {
 });
 
 // 404 handler
-app.notFound((c) => {
+app.notFound((_c) => {
   return Response.json({ success: false, error: 'Not found' }, { status: 404 });
 });
 
@@ -193,21 +236,23 @@ export default app;
 
 // Cron scheduled handler - runs every 5 minutes
 // Primary job: process pending/failed email + browser push notifications
-export async function scheduled(event: any, env: any, ctx: any) {
+export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown) {
   const db = env.DB;
   const siteUrl = 'https://newshaberglobal.vercel.app';
   const relayUrl = env.SMTP_RELAY_URL || '';
   const relaySecret = env.SMTP_RELAY_SECRET || '';
 
   // 1. Process pending and failed email notifications (retry)
-  const pendingEmails = await db.prepare(`
+  const pendingEmails = await db
+    .prepare(`
     SELECT nl.*, s.email FROM notification_log nl
     JOIN subscriptions s ON nl.subscription_id = s.id
     WHERE nl.status IN ('pending', 'failed') AND nl.type = 'email'
     ORDER BY nl.created_at ASC LIMIT 10
-  `).all();
+  `)
+    .all();
 
-  const pendingEmailList = (pendingEmails.results || []) as any[];
+  const pendingEmailList = (pendingEmails.results || []) as unknown as NotificationLogWithEmail[];
 
   for (const notif of pendingEmailList) {
     try {
@@ -217,42 +262,70 @@ export async function scheduled(event: any, env: any, ctx: any) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          secret: relaySecret, to: notif.email,
+          secret: relaySecret,
+          to: notif.email,
           subject: notif.title,
           html: `<h2>${notif.title}</h2><p>${notif.body || ''}</p><a href="${notif.url}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Haberi Oku →</a>`,
           unsubscribeUrl,
         }),
       });
       if (res.ok) {
-        await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notif.id).run();
+        await db
+          .prepare(
+            `UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`
+          )
+          .bind(notif.id)
+          .run();
       } else {
         const errText = await res.text();
-        await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(errText, notif.id).run();
+        await db
+          .prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`)
+          .bind(errText, notif.id)
+          .run();
       }
-    } catch (err: any) {
-      await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), notif.id).run();
+    } catch (err: unknown) {
+      await db
+        .prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`)
+        .bind(String(err), notif.id)
+        .run();
     }
   }
 
   // 2. Process pending browser push notifications
-  const pendingBrowser = await db.prepare(`
+  const pendingBrowser = await db
+    .prepare(`
     SELECT nl.*, s.endpoint, s.p256dh, s.auth
     FROM notification_log nl
     JOIN subscriptions s ON nl.subscription_id = s.id
     WHERE nl.status = 'pending' AND nl.type = 'browser'
     ORDER BY nl.created_at ASC LIMIT 20
-  `).all();
+  `)
+    .all();
 
-  const pendingBrowserList = (pendingBrowser.results || []) as any[];
+  const pendingBrowserList = (pendingBrowser.results || []) as unknown as (NotificationLog & {
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+  })[];
   const expiredEndpoints: string[] = [];
 
   if (pendingBrowserList.length > 0) {
     const { PushService } = await import('./services/push.service');
-    const pushService = new PushService(env);
+    const vapidConfig: VapidConfig = {
+      VAPID_PUBLIC_KEY: env.VAPID_PUBLIC_KEY || '',
+      VAPID_PRIVATE_KEY: env.VAPID_PRIVATE_KEY || '',
+      VAPID_SUBJECT: env.VAPID_SUBJECT,
+    };
+    const pushService = new PushService(vapidConfig);
 
     for (const notif of pendingBrowserList) {
       if (!notif.endpoint || !notif.p256dh || !notif.auth) {
-        await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = 'Missing subscription keys' WHERE id = ?`).bind(notif.id).run();
+        await db
+          .prepare(
+            `UPDATE notification_log SET status = 'failed', error_message = 'Missing subscription keys' WHERE id = ?`
+          )
+          .bind(notif.id)
+          .run();
         continue;
       }
 
@@ -271,23 +344,41 @@ export async function scheduled(event: any, env: any, ctx: any) {
       );
 
       if (result.success) {
-        await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notif.id).run();
+        await db
+          .prepare(
+            `UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`
+          )
+          .bind(notif.id)
+          .run();
       } else if (result.error === 'subscription_expired') {
         expiredEndpoints.push(notif.endpoint);
-        await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = 'Subscription expired' WHERE id = ?`).bind(notif.id).run();
+        await db
+          .prepare(
+            `UPDATE notification_log SET status = 'failed', error_message = 'Subscription expired' WHERE id = ?`
+          )
+          .bind(notif.id)
+          .run();
       } else {
-        await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(result.error || 'Unknown error', notif.id).run();
+        await db
+          .prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`)
+          .bind(result.error || 'Unknown error', notif.id)
+          .run();
       }
     }
 
     // Clean up expired browser subscriptions
     if (expiredEndpoints.length > 0) {
       for (const endpoint of expiredEndpoints) {
-        await db.prepare(`DELETE FROM subscriptions WHERE type = 'browser' AND endpoint = ?`).bind(endpoint).run();
+        await db
+          .prepare(`DELETE FROM subscriptions WHERE type = 'browser' AND endpoint = ?`)
+          .bind(endpoint)
+          .run();
       }
       console.log(`Cleaned up ${expiredEndpoints.length} expired browser subscriptions`);
     }
   }
 
-  console.log(`Cron: ${pendingEmailList.length} emails, ${pendingBrowserList.length} browser pushes processed`);
+  console.log(
+    `Cron: ${pendingEmailList.length} emails, ${pendingBrowserList.length} browser pushes processed`
+  );
 }

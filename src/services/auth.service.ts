@@ -1,10 +1,14 @@
-import type { User, Bindings } from '../types';
-import { hashPassword, verifyPassword, generateToken } from '../utils/auth';
+import type { User } from '../types';
+import { generateToken, hashPassword, verifyPassword } from '../utils/auth';
 
 export class AuthService {
   constructor(private db: import('@cloudflare/workers-types').D1Database) {}
 
-  async login(email: string, password: string, jwtSecret: string): Promise<{ user: Omit<User, 'password_hash'>; token: string } | null> {
+  async login(
+    email: string,
+    password: string,
+    jwtSecret: string
+  ): Promise<{ user: Omit<User, 'password_hash'>; token: string } | null> {
     const user = await this.db
       .prepare('SELECT * FROM users WHERE email = ?')
       .bind(email)
@@ -26,7 +30,9 @@ export class AuthService {
 
   async getProfile(userId: number): Promise<Omit<User, 'password_hash'> | null> {
     const user = await this.db
-      .prepare('SELECT id, email, name, role, avatar_url, created_at, updated_at FROM users WHERE id = ?')
+      .prepare(
+        'SELECT id, email, name, role, avatar_url, created_at, updated_at FROM users WHERE id = ?'
+      )
       .bind(userId)
       .first<Omit<User, 'password_hash'>>();
     return user || null;

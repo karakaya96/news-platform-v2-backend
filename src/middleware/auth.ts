@@ -1,7 +1,7 @@
-import { Context, Next } from 'hono';
+import type { Context, Next } from 'hono';
+import type { Bindings, JwtPayload } from '../types';
 import { verifyToken } from '../utils/auth';
 import { error } from '../utils/response';
-import type { JwtPayload, Bindings } from '../types';
 
 declare module 'hono' {
   interface ContextVariableMap {

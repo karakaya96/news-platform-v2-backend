@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
-import type { Bindings } from '../types';
-import { CommentService } from '../services/comment.service';
-import { authMiddleware } from '../middleware/auth';
-import { success, error, paginated } from '../utils/response';
 import { z } from 'zod';
-import { sanitizeText, sanitizeEmail } from '../utils/sanitize';
+import { authMiddleware } from '../middleware/auth';
+import { CommentService } from '../services/comment.service';
+import type { Bindings } from '../types';
+import { error, paginated, success } from '../utils/response';
+import { sanitizeEmail, sanitizeText } from '../utils/sanitize';
 
 const commentRoutes = new Hono<{ Bindings: Bindings }>();
 
@@ -31,17 +31,16 @@ const bulkUpdateSchema = z.object({
 
 // GET /api/comments/:newsId - Get approved comments for a news article
 commentRoutes.get('/:newsId', async (c) => {
-  const newsId = parseInt(c.req.param('newsId'));
+  const newsId = Number.parseInt(c.req.param('newsId'), 10);
 
-  if (isNaN(newsId)) {
+  if (Number.isNaN(newsId)) {
     return error('Geçersiz haber ID', 400);
   }
 
   const service = new CommentService(c.env.DB);
 
   // Check if news exists
-  const news = await c.env.DB
-    .prepare('SELECT id FROM news WHERE id = ? AND status = \'published\'')
+  const news = await c.env.DB.prepare("SELECT id FROM news WHERE id = ? AND status = 'published'")
     .bind(newsId)
     .first();
 
@@ -55,9 +54,9 @@ commentRoutes.get('/:newsId', async (c) => {
 
 // POST /api/comments/:newsId - Create a new comment (public)
 commentRoutes.post('/:newsId', async (c) => {
-  const newsId = parseInt(c.req.param('newsId'));
+  const newsId = Number.parseInt(c.req.param('newsId'), 10);
 
-  if (isNaN(newsId)) {
+  if (Number.isNaN(newsId)) {
     return error('Geçersiz haber ID', 400);
   }
 
@@ -65,12 +64,11 @@ commentRoutes.post('/:newsId', async (c) => {
   const parsed = createCommentSchema.safeParse(body);
 
   if (!parsed.success) {
-    return error(parsed.error.errors[0].message, 400);
+    return error(parsed.error.issues[0].message, 400);
   }
 
   // Check if news exists and is published
-  const news = await c.env.DB
-    .prepare('SELECT id FROM news WHERE id = ? AND status = \'published\'')
+  const news = await c.env.DB.prepare("SELECT id FROM news WHERE id = ? AND status = 'published'")
     .bind(newsId)
     .first();
 
@@ -80,8 +78,9 @@ commentRoutes.post('/:newsId', async (c) => {
 
   // If parent_id is set, verify it exists, is approved, and belongs to same news
   if (parsed.data.parent_id) {
-    const parent = await c.env.DB
-      .prepare('SELECT id FROM comments WHERE id = ? AND news_id = ? AND status = \'approved\'')
+    const parent = await c.env.DB.prepare(
+      "SELECT id FROM comments WHERE id = ? AND news_id = ? AND status = 'approved'"
+    )
       .bind(parsed.data.parent_id, newsId)
       .first();
 
@@ -129,10 +128,12 @@ commentRoutes.get('/admin/all', authMiddleware, async (c) => {
     return error('Yetkisiz erişim', 403);
   }
 
-  const page = parseInt(c.req.query('page') || '1');
-  const limit = parseInt(c.req.query('limit') || '20');
+  const page = Number.parseInt(c.req.query('page') || '1', 10);
+  const limit = Number.parseInt(c.req.query('limit') || '20', 10);
   const status = c.req.query('status');
-  const newsId = c.req.query('news_id') ? parseInt(c.req.query('news_id')!) : undefined;
+  const newsId = c.req.query('news_id')
+    ? Number.parseInt(c.req.query('news_id') ?? '', 10)
+    : undefined;
 
   const service = new CommentService(c.env.DB);
   const { comments, total } = await service.getAllComments(page, limit, status, newsId);
@@ -147,8 +148,8 @@ commentRoutes.put('/admin/:id/status', authMiddleware, async (c) => {
     return error('Yetkisiz erişim', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
-  if (isNaN(id)) {
+  const id = Number.parseInt(c.req.param('id'), 10);
+  if (Number.isNaN(id)) {
     return error('Geçersiz yorum ID', 400);
   }
 
@@ -156,7 +157,7 @@ commentRoutes.put('/admin/:id/status', authMiddleware, async (c) => {
   const parsed = updateStatusSchema.safeParse(body);
 
   if (!parsed.success) {
-    return error(parsed.error.errors[0].message, 400);
+    return error(parsed.error.issues[0].message, 400);
   }
 
   const service = new CommentService(c.env.DB);
@@ -176,8 +177,8 @@ commentRoutes.post('/admin/:id/reply', authMiddleware, async (c) => {
     return error('Yetkisiz erişim', 403);
   }
 
-  const parentId = parseInt(c.req.param('id'));
-  if (isNaN(parentId)) {
+  const parentId = Number.parseInt(c.req.param('id'), 10);
+  if (Number.isNaN(parentId)) {
     return error('Geçersiz yorum ID', 400);
   }
 
@@ -189,8 +190,7 @@ commentRoutes.post('/admin/:id/reply', authMiddleware, async (c) => {
   }
 
   // Get parent comment to find news_id
-  const parent = await c.env.DB
-    .prepare('SELECT * FROM comments WHERE id = ?')
+  const parent = await c.env.DB.prepare('SELECT * FROM comments WHERE id = ?')
     .bind(parentId)
     .first<{ id: number; news_id: number }>();
 
@@ -222,8 +222,8 @@ commentRoutes.delete('/admin/:id', authMiddleware, async (c) => {
     return error('Yetkisiz erişim', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
-  if (isNaN(id)) {
+  const id = Number.parseInt(c.req.param('id'), 10);
+  if (Number.isNaN(id)) {
     return error('Geçersiz yorum ID', 400);
   }
 
@@ -248,7 +248,7 @@ commentRoutes.put('/admin/bulk/status', authMiddleware, async (c) => {
   const parsed = bulkUpdateSchema.safeParse(body);
 
   if (!parsed.success) {
-    return error(parsed.error.errors[0].message, 400);
+    return error(parsed.error.issues[0].message, 400);
   }
 
   const service = new CommentService(c.env.DB);

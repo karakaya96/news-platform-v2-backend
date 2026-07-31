@@ -1,5 +1,10 @@
-import type { Bindings } from '../types';
 import type { PushSubscription } from '@block65/webcrypto-web-push';
+
+export interface VapidConfig {
+  VAPID_PUBLIC_KEY: string;
+  VAPID_PRIVATE_KEY: string;
+  VAPID_SUBJECT?: string;
+}
 
 interface PushMessage {
   title: string;
@@ -12,7 +17,7 @@ interface PushMessage {
 }
 
 export class PushService {
-  constructor(private env: Bindings) {}
+  constructor(private env: VapidConfig) {}
 
   /**
    * Send a push notification to a single browser subscription
@@ -57,14 +62,14 @@ export class PushService {
       const response = await fetch(subscription.endpoint, {
         method: 'POST',
         headers: {
-          'authorization': payload.headers['authorization'] as string,
+          authorization: payload.headers.authorization as string,
           'crypto-key': payload.headers['crypto-key'] as string,
-          'encryption': payload.headers['encryption'] as string,
+          encryption: payload.headers.encryption as string,
           'content-encoding': 'aesgcm',
           'content-type': 'application/octet-stream',
           'content-length': bodyBuffer.byteLength.toString(),
-          'ttl': (payload.headers['ttl'] as string) || '86400',
-          ...(payload.headers['topic'] ? { 'topic': payload.headers['topic'] as string } : {}),
+          ttl: (payload.headers.ttl as string) || '86400',
+          ...(payload.headers.topic ? { topic: payload.headers.topic as string } : {}),
         },
         body: bodyBuffer,
       });
@@ -80,8 +85,8 @@ export class PushService {
 
       const errorText = await response.text();
       return { success: false, error: `push_error_${response.status}: ${errorText}` };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Unknown push error' };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown push error' };
     }
   }
 

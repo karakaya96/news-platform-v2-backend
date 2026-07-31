@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
-import type { Bindings } from '../types';
+import { authMiddleware } from '../middleware/auth';
 import { CategoryService } from '../services/category.service';
 import { NewsService } from '../services/news.service';
-import { authMiddleware } from '../middleware/auth';
-import { success, error } from '../utils/response';
+import type { Bindings } from '../types';
+import { error, success } from '../utils/response';
 import { createCategorySchema, updateCategorySchema } from '../utils/validation';
 
 const categoryRoutes = new Hono<{ Bindings: Bindings }>();
@@ -15,8 +15,9 @@ categoryRoutes.get('/', async (c) => {
   // Add article count for each category
   const categoriesWithCount = await Promise.all(
     categories.map(async (cat) => {
-      const countResult = await c.env.DB
-        .prepare('SELECT COUNT(*) as count FROM news WHERE category_id = ?')
+      const countResult = await c.env.DB.prepare(
+        'SELECT COUNT(*) as count FROM news WHERE category_id = ?'
+      )
         .bind(cat.id)
         .first<{ count: number }>();
       return { ...cat, article_count: countResult?.count || 0 };
@@ -27,7 +28,7 @@ categoryRoutes.get('/', async (c) => {
 
 // GET /api/categories/id/:id - Get category by ID (admin)
 categoryRoutes.get('/id/:id', async (c) => {
-  const id = parseInt(c.req.param('id'));
+  const id = Number.parseInt(c.req.param('id'), 10);
   const service = new CategoryService(c.env.DB);
   const category = await service.getCategoryById(id);
   if (!category) {
@@ -39,8 +40,8 @@ categoryRoutes.get('/id/:id', async (c) => {
 // GET /api/categories/:slug - Public, with news
 categoryRoutes.get('/:slug', async (c) => {
   const slug = c.req.param('slug');
-  const page = parseInt(c.req.query('page') || '1');
-  const limit = parseInt(c.req.query('limit') || '10');
+  const page = Number.parseInt(c.req.query('page') || '1', 10);
+  const limit = Number.parseInt(c.req.query('limit') || '10', 10);
 
   const categoryService = new CategoryService(c.env.DB);
   const category = await categoryService.getCategoryBySlug(slug);
@@ -51,8 +52,9 @@ categoryRoutes.get('/:slug', async (c) => {
   const newsService = new NewsService(c.env.DB);
   const { news, total } = await newsService.getAllNews(page, limit, slug);
 
-  const countResult = await c.env.DB
-    .prepare('SELECT COUNT(*) as count FROM news WHERE category_id = ?')
+  const countResult = await c.env.DB.prepare(
+    'SELECT COUNT(*) as count FROM news WHERE category_id = ?'
+  )
     .bind(category.id)
     .first<{ count: number }>();
 
@@ -62,35 +64,41 @@ categoryRoutes.get('/:slug', async (c) => {
 // POST /api/categories - Admin only
 categoryRoutes.post('/', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user || user.role !== 'admin') {
+  if (user?.role !== 'admin') {
     return error('Unauthorized', 403);
   }
 
   const body = await c.req.json();
   const parsed = createCategorySchema.safeParse(body);
   if (!parsed.success) {
-    return error(parsed.error.errors[0].message, 400);
+    return error(parsed.error.issues[0].message, 400);
   }
 
   const service = new CategoryService(c.env.DB);
-  const category = await service.createCategory(parsed.data as {
-    name: string; slug?: string; description?: string; color?: string; sort_order?: number;
-  });
+  const category = await service.createCategory(
+    parsed.data as {
+      name: string;
+      slug?: string;
+      description?: string;
+      color?: string;
+      sort_order?: number;
+    }
+  );
   return success(category, 201);
 });
 
 // PUT /api/categories/:id - Admin only
 categoryRoutes.put('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user || user.role !== 'admin') {
+  if (user?.role !== 'admin') {
     return error('Unauthorized', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
+  const id = Number.parseInt(c.req.param('id'), 10);
   const body = await c.req.json();
   const parsed = updateCategorySchema.safeParse(body);
   if (!parsed.success) {
-    return error(parsed.error.errors[0].message, 400);
+    return error(parsed.error.issues[0].message, 400);
   }
 
   const service = new CategoryService(c.env.DB);
@@ -104,11 +112,11 @@ categoryRoutes.put('/:id', authMiddleware, async (c) => {
 // DELETE /api/categories/:id - Admin only
 categoryRoutes.delete('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user || user.role !== 'admin') {
+  if (user?.role !== 'admin') {
     return error('Unauthorized', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
+  const id = Number.parseInt(c.req.param('id'), 10);
   const service = new CategoryService(c.env.DB);
   const result = await service.deleteCategory(id);
 

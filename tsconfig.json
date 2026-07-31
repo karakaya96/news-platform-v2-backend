@@ -15,10 +15,7 @@
       "ESNext",
       "WebWorker"
     ],
-    "types": [
-      "@cloudflare/workers-types",
-      "@cloudflare/workers-types/experimental"
-    ],
+    "types": ["@cloudflare/workers-types", "@cloudflare/workers-types/experimental"],
     "strict": true,
     "strictNullChecks": false,
     "noUncheckedIndexedAccess": false,
@@ -31,18 +28,10 @@
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@/*": ["./src/*"]
     },
     "baseUrl": "."
   },
-  "include": [
-    "src/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "db"
-  ]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "db"]
 }

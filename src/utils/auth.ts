@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify } from 'jose';
+import { jwtVerify, SignJWT } from 'jose';
 import type { JwtPayload } from '../types';
 
 export async function generateToken(
@@ -13,10 +13,7 @@ export async function generateToken(
     .sign(secretKey);
 }
 
-export async function verifyToken(
-  token: string,
-  secret: string
-): Promise<JwtPayload | null> {
+export async function verifyToken(token: string, secret: string): Promise<JwtPayload | null> {
   try {
     const secretKey = new TextEncoder().encode(secret);
     const { payload } = await jwtVerify(token, secretKey);
@@ -56,16 +53,11 @@ export async function hashPassword(password: string): Promise<string> {
   return `${saltHex}:${hashHex}`;
 }
 
-export async function verifyPassword(
-  password: string,
-  storedHash: string
-): Promise<boolean> {
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
   const [saltHex, hashHex] = storedHash.split(':');
   if (!saltHex || !hashHex) return false;
 
-  const salt = new Uint8Array(
-    saltHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
-  );
+  const salt = new Uint8Array(saltHex.match(/.{1,2}/g)?.map((byte) => Number.parseInt(byte, 16)));
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',

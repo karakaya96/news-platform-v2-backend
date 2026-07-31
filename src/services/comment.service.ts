@@ -15,7 +15,7 @@ export class CommentService {
     user_agent?: string | null;
   }): Promise<Comment> {
     const now = turkeyNowSQL();
-    const result = await this.db
+    const _result = await this.db
       .prepare(`
         INSERT INTO comments (news_id, parent_id, author_name, author_email, content, ip_address, user_agent, status, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
@@ -32,13 +32,14 @@ export class CommentService {
       )
       .run();
 
-    const commentId = result.meta.last_row_id;
+    const commentId = _result.meta.last_row_id;
     const comment = await this.db
       .prepare('SELECT * FROM comments WHERE id = ?')
       .bind(commentId)
       .first<Comment>();
 
-    return comment!;
+    if (!comment) throw new Error('Not found');
+    return comment;
   }
 
   // Get approved comments for a news article (public)
@@ -95,8 +96,8 @@ export class CommentService {
 
   // Get all comments (admin)
   async getAllComments(
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
     status?: string,
     newsId?: number
   ): Promise<{ comments: CommentWithNews[]; total: number }> {
@@ -140,7 +141,10 @@ export class CommentService {
   }
 
   // Update comment status (admin)
-  async updateCommentStatus(id: number, status: 'pending' | 'approved' | 'rejected' | 'spam'): Promise<Comment | null> {
+  async updateCommentStatus(
+    id: number,
+    status: 'pending' | 'approved' | 'rejected' | 'spam'
+  ): Promise<Comment | null> {
     const existing = await this.db
       .prepare('SELECT * FROM comments WHERE id = ?')
       .bind(id)
@@ -153,10 +157,7 @@ export class CommentService {
       .bind(status, id)
       .run();
 
-    return this.db
-      .prepare('SELECT * FROM comments WHERE id = ?')
-      .bind(id)
-      .first<Comment>();
+    return this.db.prepare('SELECT * FROM comments WHERE id = ?').bind(id).first<Comment>();
   }
 
   // Reply to a comment (admin)
@@ -164,10 +165,10 @@ export class CommentService {
     parentId: number,
     newsId: number,
     content: string,
-    authorName: string = 'Admin',
-    authorEmail: string = 'admin@newsplatform.com'
+    authorName = 'Admin',
+    authorEmail = 'admin@newsplatform.com'
   ): Promise<Comment> {
-    const result = await this.db
+    const _result = await this.db
       .prepare(`
         INSERT INTO comments (news_id, parent_id, author_name, author_email, content, status)
         VALUES (?, ?, ?, ?, ?, 'approved')
@@ -175,21 +176,19 @@ export class CommentService {
       .bind(newsId, parentId, authorName, authorEmail, content)
       .run();
 
-    const commentId = result.meta.last_row_id;
+    const commentId = _result.meta.last_row_id;
     const comment = await this.db
       .prepare('SELECT * FROM comments WHERE id = ?')
       .bind(commentId)
       .first<Comment>();
 
-    return comment!;
+    if (!comment) throw new Error('Not found');
+    return comment;
   }
 
   // Delete a comment (admin)
   async deleteComment(id: number): Promise<boolean> {
-    const result = await this.db
-      .prepare('DELETE FROM comments WHERE id = ?')
-      .bind(id)
-      .run();
+    const result = await this.db.prepare('DELETE FROM comments WHERE id = ?').bind(id).run();
 
     return result.meta.changes > 0;
   }
@@ -200,7 +199,9 @@ export class CommentService {
 
     const placeholders = ids.map(() => '?').join(',');
     const result = await this.db
-      .prepare(`UPDATE comments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders})`)
+      .prepare(
+        `UPDATE comments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders})`
+      )
       .bind(status, ...ids)
       .run();
 

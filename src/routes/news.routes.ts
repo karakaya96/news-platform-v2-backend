@@ -1,17 +1,19 @@
 import { Hono } from 'hono';
-import type { Bindings } from '../types';
-import { NewsService } from '../services/news.service';
-import { SubscriptionService } from '../services/subscription.service';
 import { authMiddleware } from '../middleware/auth';
-import { success, error, paginated } from '../utils/response';
+import { createRateLimiter } from '../middleware/rate-limit';
+import { NewsService } from '../services/news.service';
+import type { VapidConfig } from '../services/push.service';
+import { SubscriptionService } from '../services/subscription.service';
+import type { Bindings } from '../types';
+import { error, paginated, success } from '../utils/response';
 import { createNewsSchema, updateNewsSchema } from '../utils/validation';
 
 const newsRoutes = new Hono<{ Bindings: Bindings }>();
 
 // GET /api/news - Public, with pagination, filtering, search
-newsRoutes.get('/', async (c) => {
-  const page = parseInt(c.req.query('page') || '1');
-  const limit = parseInt(c.req.query('limit') || '10');
+newsRoutes.get('/', createRateLimiter('api:news:list'), async (c) => {
+  const page = Number.parseInt(c.req.query('page') || '1', 10);
+  const limit = Number.parseInt(c.req.query('limit') || '10', 10);
   const category = c.req.query('category');
   const status = c.req.query('status') || 'published';
   const search = c.req.query('search');
@@ -23,8 +25,16 @@ newsRoutes.get('/', async (c) => {
 
   const service = new NewsService(c.env.DB);
   const { news, total } = await service.getAllNews(
-    page, limit, category, status, search,
-    featured, breaking, dateFrom, dateTo, sortBy
+    page,
+    limit,
+    category,
+    status,
+    search,
+    featured,
+    breaking,
+    dateFrom,
+    dateTo,
+    sortBy
   );
   return paginated(news, total, page, limit);
 });
@@ -46,18 +56,18 @@ newsRoutes.get('/breaking', async (c) => {
 // GET /api/news/id/:id - Admin only, fetch by ID
 newsRoutes.get('/id/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user || user.role !== 'admin') {
+  if (user?.role !== 'admin') {
     return error('Unauthorized', 403);
   }
-  
-  const id = parseInt(c.req.param('id'));
+
+  const id = Number.parseInt(c.req.param('id'), 10);
   const service = new NewsService(c.env.DB);
   const news = await service.getNewsById(id);
-  
+
   if (!news) {
     return error('Article not found', 404);
   }
-  
+
   return success(news);
 });
 
@@ -73,8 +83,8 @@ newsRoutes.get('/:slug', async (c) => {
 
   await service.incrementViewCount(news.id);
 
-  const related = await service.getRelatedNews(news.id, news.category_id, 4);
-  return success({ ...news, view_count: news.view_count + 1, related });
+  const related = await service.getRelatedNews(news.id, news.categoryId, 4);
+  return success({ ...news, viewCount: news.viewCount + 1, related });
 });
 
 // Helper: trigger notifications for a published news article
@@ -89,7 +99,7 @@ async function triggerNotifications(
   relayUrl: string,
   relaySecret: string,
   vapidPublicKey: string,
-  vapidPrivateKey: string,
+  vapidPrivateKey: string
 ) {
   const subService = new SubscriptionService(db);
   const subs = await subService.getActiveSubscriptionsByCategory(categorySlug);
@@ -97,14 +107,19 @@ async function triggerNotifications(
   for (const sub of subs) {
     if (sub.type === 'email' && sub.email) {
       // Insert notification log
-      const notifResult = await db.prepare(`
+      const notifResult = await db
+        .prepare(`
         INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
         VALUES (?, 'email', ?, ?, ?, ?, 'pending')
-      `).bind(
-        sub.id, `📰 ${title}`,
-        excerpt || 'Yeni haberi okumak için tıklayın',
-        `${siteUrl}/news/${slug}`, newsId
-      ).run();
+      `)
+        .bind(
+          sub.id,
+          `📰 ${title}`,
+          excerpt || 'Yeni haberi okumak için tıklayın',
+          `${siteUrl}/news/${slug}`,
+          newsId
+        )
+        .run();
 
       const notifId = notifResult.meta?.last_row_id;
 
@@ -125,28 +140,55 @@ async function triggerNotifications(
           });
 
           if (res.ok) {
-            await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notifId).run();
+            await db
+              .prepare(
+                `UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`
+              )
+              .bind(notifId)
+              .run();
           } else {
             const errText = await res.text();
-            await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(errText, notifId).run();
+            await db
+              .prepare(
+                `UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`
+              )
+              .bind(errText, notifId)
+              .run();
           }
-        } catch (err: any) {
-          await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), notifId).run();
+        } catch (err: unknown) {
+          await db
+            .prepare(
+              `UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`
+            )
+            .bind(String(err), notifId)
+            .run();
         }
       }
     }
 
     // Browser push notification - send immediately using webcrypto-web-push
-    if (sub.type === 'browser' && sub.endpoint && sub.p256dh && sub.auth && vapidPublicKey && vapidPrivateKey) {
+    if (
+      sub.type === 'browser' &&
+      sub.endpoint &&
+      sub.p256dh &&
+      sub.auth &&
+      vapidPublicKey &&
+      vapidPrivateKey
+    ) {
       // Insert notification log first
-      const notifResult = await db.prepare(`
+      const notifResult = await db
+        .prepare(`
         INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
         VALUES (?, 'browser', ?, ?, ?, ?, 'pending')
-      `).bind(
-        sub.id, title,
-        excerpt || 'Yeni haberi okumak için tıklayın',
-        `${siteUrl}/news/${slug}`, newsId
-      ).run();
+      `)
+        .bind(
+          sub.id,
+          title,
+          excerpt || 'Yeni haberi okumak için tıklayın',
+          `${siteUrl}/news/${slug}`,
+          newsId
+        )
+        .run();
 
       const notifId = notifResult.meta?.last_row_id;
 
@@ -156,7 +198,7 @@ async function triggerNotifications(
           VAPID_PUBLIC_KEY: vapidPublicKey,
           VAPID_PRIVATE_KEY: vapidPrivateKey,
           VAPID_SUBJECT: 'mailto:admin@newshaberglobal.com',
-        } as any);
+        } as VapidConfig);
 
         const result = await pushService.sendPush(
           {
@@ -173,17 +215,39 @@ async function triggerNotifications(
         );
 
         if (result.success && notifId) {
-          await db.prepare(`UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`).bind(notifId).run();
+          await db
+            .prepare(
+              `UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`
+            )
+            .bind(notifId)
+            .run();
         } else if (result.error === 'subscription_expired') {
           // Remove expired subscription
-          await db.prepare(`DELETE FROM subscriptions WHERE id = ?`).bind(sub.id).run();
-          if (notifId) await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = 'Subscription expired' WHERE id = ?`).bind(notifId).run();
+          await db.prepare('DELETE FROM subscriptions WHERE id = ?').bind(sub.id).run();
+          if (notifId)
+            await db
+              .prepare(
+                `UPDATE notification_log SET status = 'failed', error_message = 'Subscription expired' WHERE id = ?`
+              )
+              .bind(notifId)
+              .run();
         } else if (notifId) {
-          await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(result.error || 'Unknown error', notifId).run();
+          await db
+            .prepare(
+              `UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`
+            )
+            .bind(result.error || 'Unknown error', notifId)
+            .run();
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Browser push error:', err);
-        if (notifId) await db.prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`).bind(String(err), notifId).run();
+        if (notifId)
+          await db
+            .prepare(
+              `UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`
+            )
+            .bind(String(err), notifId)
+            .run();
       }
     }
   }
@@ -192,22 +256,34 @@ async function triggerNotifications(
 // POST /api/news - Admin only
 newsRoutes.post('/', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user || user.role !== 'admin') {
+  if (user?.role !== 'admin') {
     return error('Unauthorized', 403);
   }
 
   const body = await c.req.json();
   const parsed = createNewsSchema.safeParse(body);
   if (!parsed.success) {
-    return error(parsed.error.errors[0].message, 400);
+    return error(parsed.error.issues[0].message, 400);
   }
 
   const service = new NewsService(c.env.DB);
   const news = await service.createNews({ ...parsed.data, author_id: user.sub } as {
-    title: string; slug?: string; excerpt?: string; content: string; image_url?: string | null;
-    image_alt?: string | null; category_id: number; author_id: number; status?: string;
-    is_featured?: boolean; is_breaking?: boolean; seo_title?: string; seo_description?: string;
-    seo_keywords?: string; published_at?: string; tag_ids?: number[];
+    title: string;
+    slug?: string;
+    excerpt?: string;
+    content: string;
+    image_url?: string | null;
+    image_alt?: string | null;
+    category_id: number;
+    author_id: number;
+    status?: string;
+    is_featured?: boolean;
+    is_breaking?: boolean;
+    seo_title?: string;
+    seo_description?: string;
+    seo_keywords?: string;
+    published_at?: string;
+    tag_ids?: number[];
   });
 
   // If published immediately, trigger notifications
@@ -217,13 +293,23 @@ newsRoutes.post('/', authMiddleware, async (c) => {
     const relaySecret = c.env.SMTP_RELAY_SECRET || '';
 
     // Get category slug
-    const cat = await c.env.DB.prepare('SELECT slug FROM categories WHERE id = ?').bind(news.category_id).first<{ slug: string }>();
+    const cat = await c.env.DB.prepare('SELECT slug FROM categories WHERE id = ?')
+      .bind(news.categoryId)
+      .first<{ slug: string }>();
     const categorySlug = cat?.slug || '';
 
     await triggerNotifications(
-      c.env.DB, news.id, news.title, news.slug, news.excerpt,
-      categorySlug, siteUrl, relayUrl, relaySecret,
-      c.env.VAPID_PUBLIC_KEY, c.env.VAPID_PRIVATE_KEY
+      c.env.DB,
+      news.id,
+      news.title,
+      news.slug,
+      news.excerpt,
+      categorySlug,
+      siteUrl,
+      relayUrl,
+      relaySecret,
+      c.env.VAPID_PUBLIC_KEY,
+      c.env.VAPID_PRIVATE_KEY
     );
   }
 
@@ -233,15 +319,15 @@ newsRoutes.post('/', authMiddleware, async (c) => {
 // PUT /api/news/:id - Admin only
 newsRoutes.put('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user || user.role !== 'admin') {
+  if (user?.role !== 'admin') {
     return error('Unauthorized', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
+  const id = Number.parseInt(c.req.param('id'), 10);
   const body = await c.req.json();
   const parsed = updateNewsSchema.safeParse(body);
   if (!parsed.success) {
-    return error(parsed.error.errors[0].message, 400);
+    return error(parsed.error.issues[0].message, 400);
   }
 
   const service = new NewsService(c.env.DB);
@@ -267,13 +353,23 @@ newsRoutes.put('/:id', authMiddleware, async (c) => {
     const relaySecret = c.env.SMTP_RELAY_SECRET || '';
 
     // Get category slug
-    const cat = await c.env.DB.prepare('SELECT slug FROM categories WHERE id = ?').bind(news.category_id).first<{ slug: string }>();
+    const cat = await c.env.DB.prepare('SELECT slug FROM categories WHERE id = ?')
+      .bind(news.categoryId)
+      .first<{ slug: string }>();
     const categorySlug = cat?.slug || '';
 
     await triggerNotifications(
-      c.env.DB, news.id, news.title, news.slug, news.excerpt,
-      categorySlug, siteUrl, relayUrl, relaySecret,
-      c.env.VAPID_PUBLIC_KEY, c.env.VAPID_PRIVATE_KEY
+      c.env.DB,
+      news.id,
+      news.title,
+      news.slug,
+      news.excerpt,
+      categorySlug,
+      siteUrl,
+      relayUrl,
+      relaySecret,
+      c.env.VAPID_PUBLIC_KEY,
+      c.env.VAPID_PRIVATE_KEY
     );
   }
 
@@ -283,11 +379,11 @@ newsRoutes.put('/:id', authMiddleware, async (c) => {
 // DELETE /api/news/:id - Admin only
 newsRoutes.delete('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user || user.role !== 'admin') {
+  if (user?.role !== 'admin') {
     return error('Unauthorized', 403);
   }
 
-  const id = parseInt(c.req.param('id'));
+  const id = Number.parseInt(c.req.param('id'), 10);
   const service = new NewsService(c.env.DB);
   const deleted = await service.deleteNews(id);
   if (!deleted) {
