@@ -101,11 +101,25 @@ async function triggerNotifications(
   vapidPublicKey: string,
   vapidPrivateKey: string
 ) {
+  // Check if notifications are enabled
+  const notifEnabledRow = await db.prepare("SELECT value FROM settings WHERE key = 'notifications_enabled'")
+    .first<{ value: string }>();
+  if (notifEnabledRow && notifEnabledRow.value === 'false') {
+    return; // Notifications disabled
+  }
+
+  // Check if email notifications are enabled
+  const emailEnabledRow = await db.prepare("SELECT value FROM settings WHERE key = 'notifications_email_enabled'")
+    .first<{ value: string }>();
+  const emailEnabled = !emailEnabledRow || emailEnabledRow.value !== 'false';
+
   const subService = new SubscriptionService(db);
   const subs = await subService.getActiveSubscriptionsByCategory(categorySlug);
 
   for (const sub of subs) {
     if (sub.type === 'email' && sub.email) {
+      // Skip email if email notifications are disabled
+      if (!emailEnabled) continue;
       // Insert notification log
       const notifResult = await db
         .prepare(`

@@ -60,12 +60,24 @@ commentRoutes.post('/:newsId', async (c) => {
     return error('Geçersiz haber ID', 400);
   }
 
+  // Check if comments are enabled via settings
+  const settingsRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'comments_enabled'")
+    .first<{ value: string }>();
+  if (settingsRow && settingsRow.value === 'false') {
+    return error('Yorumlar devre dışı', 403);
+  }
+
   const body = await c.req.json();
   const parsed = createCommentSchema.safeParse(body);
 
   if (!parsed.success) {
     return error(parsed.error.issues[0].message, 400);
   }
+
+  // Check max length from settings
+  const maxLengthRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'comments_max_length'")
+    .first<{ value: string }>();
+  const maxLen = maxLengthRow ? Number.parseInt(maxLengthRow.value, 10) || 5000 : 5000;
 
   // Check if news exists and is published
   const news = await c.env.DB.prepare("SELECT id FROM news WHERE id = ? AND status = 'published'")
@@ -91,7 +103,7 @@ commentRoutes.post('/:newsId', async (c) => {
 
   const sanitizedName = sanitizeText(parsed.data.author_name, 100);
   const sanitizedEmail = sanitizeEmail(parsed.data.author_email);
-  const sanitizedContent = sanitizeText(parsed.data.content, 5000);
+  const sanitizedContent = sanitizeText(parsed.data.content, maxLen);
 
   if (!sanitizedName) {
     return error('Geçersiz isim', 400);
@@ -103,6 +115,11 @@ commentRoutes.post('/:newsId', async (c) => {
     return error('Yorum içeriği gerekli', 400);
   }
 
+  // Check moderation setting
+  const moderationRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'comments_moderation'")
+    .first<{ value: string }>();
+  const moderationEnabled = !moderationRow || moderationRow.value !== 'false';
+
   const service = new CommentService(c.env.DB);
   const comment = await service.createComment({
     news_id: newsId,
@@ -110,6 +127,7 @@ commentRoutes.post('/:newsId', async (c) => {
     author_name: sanitizedName,
     author_email: sanitizedEmail,
     content: sanitizedContent,
+    status: moderationEnabled ? 'pending' : 'approved',
     ip_address: c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || null,
     user_agent: c.req.header('User-Agent') || null,
   });

@@ -11,14 +11,16 @@ export class CommentService {
     author_name: string;
     author_email: string;
     content: string;
+    status?: 'pending' | 'approved';
     ip_address?: string | null;
     user_agent?: string | null;
   }): Promise<Comment> {
     const now = turkeyNowSQL();
+    const status = data.status || 'pending';
     const _result = await this.db
       .prepare(`
         INSERT INTO comments (news_id, parent_id, author_name, author_email, content, ip_address, user_agent, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         data.news_id,
@@ -28,6 +30,7 @@ export class CommentService {
         data.content,
         data.ip_address || null,
         data.user_agent || null,
+        status,
         now
       )
       .run();

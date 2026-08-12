@@ -29,6 +29,13 @@ const _emailUnsubscribeSchema = z.object({
 
 // POST /api/subscribe - Subscribe to notifications
 subscriptionRoutes.post('/', async (c) => {
+  // Check if notifications are enabled
+  const notifEnabledRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'notifications_enabled'")
+    .first<{ value: string }>();
+  if (notifEnabledRow && notifEnabledRow.value === 'false') {
+    return error('Bildirimler devre dışı', 403);
+  }
+
   const body = await c.req.json();
   const parsed = subscribeSchema.safeParse(body);
 
@@ -46,6 +53,12 @@ subscriptionRoutes.post('/', async (c) => {
   } else if (data.type === 'email') {
     if (!data.email) {
       return error('E-posta aboneliği için e-posta adresi gerekli', 400);
+    }
+    // Check if email notifications are enabled
+    const emailEnabledRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'notifications_email_enabled'")
+      .first<{ value: string }>();
+    if (emailEnabledRow && emailEnabledRow.value === 'false') {
+      return error('E-posta bildirimleri devre dışı', 403);
     }
     const cleanEmail = sanitizeEmail(data.email);
     if (!cleanEmail) {

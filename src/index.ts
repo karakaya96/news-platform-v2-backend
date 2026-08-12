@@ -240,12 +240,31 @@ export default app;
 // Primary job: process pending/failed email + browser push notifications
 export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown) {
   const db = env.DB;
+
+  // Check if notifications are enabled
+  const notifEnabledRow = await db.prepare("SELECT value FROM settings WHERE key = 'notifications_enabled'")
+    .first<{ value: string }>();
+  if (notifEnabledRow && notifEnabledRow.value === 'false') {
+    console.log('Cron: Notifications disabled via settings');
+    return;
+  }
+
+  // Check if email notifications are enabled
+  const emailEnabledRow = await db.prepare("SELECT value FROM settings WHERE key = 'notifications_email_enabled'")
+    .first<{ value: string }>();
+  const emailEnabled = !emailEnabledRow || emailEnabledRow.value !== 'false';
+
   const siteUrl = 'https://newshaberglobal.vercel.app';
   const relayUrl = env.SMTP_RELAY_URL || '';
   const relaySecret = env.SMTP_RELAY_SECRET || '';
 
   // 1. Process pending and failed email notifications (retry)
-  const pendingEmails = await db
+  if (!emailEnabled) {
+    // Mark all pending emails as skipped
+    await db.prepare("UPDATE notification_log SET status = 'failed', error_message = 'Email notifications disabled' WHERE status IN ('pending', 'failed') AND type = 'email'")
+      .run();
+  } else {
+    const pendingEmails = await db
     .prepare(`
     SELECT nl.*, s.email FROM notification_log nl
     JOIN subscriptions s ON nl.subscription_id = s.id
@@ -292,6 +311,7 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
         .run();
     }
   }
+  } // end emailEnabled else block
 
   // 2. Process pending browser push notifications
   const pendingBrowser = await db
