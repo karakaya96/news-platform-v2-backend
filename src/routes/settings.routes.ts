@@ -18,7 +18,8 @@ settingsRoutes.get('/public/all', async (c) => {
       'site_name', 'site_description', 'site_url', 'site_logo', 'site_favicon',
       'site_language', 'seo_title', 'seo_description', 'seo_keywords', 'seo_og_image',
       'social_twitter', 'social_facebook', 'social_instagram', 'social_youtube', 'social_telegram',
-      'comments_enabled', 'notifications_enabled',
+      'email_from_name', 'email_from_address', 'email_reply_to',
+      'comments_enabled', 'comments_max_length', 'notifications_enabled', 'notifications_email_enabled',
     ];
     const publicSettings: Record<string, string> = {};
     for (const key of publicKeys) {

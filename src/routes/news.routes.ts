@@ -113,6 +113,17 @@ async function triggerNotifications(
     .first<{ value: string }>();
   const emailEnabled = !emailEnabledRow || emailEnabledRow.value !== 'false';
 
+  // Read email settings
+  const emailFromNameRow = await db.prepare("SELECT value FROM settings WHERE key = 'email_from_name'")
+    .first<{ value: string }>();
+  const emailFromAddrRow = await db.prepare("SELECT value FROM settings WHERE key = 'email_from_address'")
+    .first<{ value: string }>();
+  const emailReplyToRow = await db.prepare("SELECT value FROM settings WHERE key = 'email_reply_to'")
+    .first<{ value: string }>();
+  const fromName = emailFromNameRow?.value || 'NewsHaberGlobal';
+  const fromAddress = emailFromAddrRow?.value || 'noreply@newshaberglobal.com';
+  const replyTo = emailReplyToRow?.value || '';
+
   const subService = new SubscriptionService(db);
   const subs = await subService.getActiveSubscriptionsByCategory(categorySlug);
 
@@ -147,6 +158,9 @@ async function triggerNotifications(
             body: JSON.stringify({
               secret: relaySecret,
               to: sub.email,
+              from: fromAddress,
+              fromName,
+              replyTo: replyTo || undefined,
               subject: `📰 ${title}`,
               html: `<h2>${title}</h2><p>${excerpt || ''}</p><a href="${siteUrl}/news/${slug}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Haberi Oku →</a>`,
               unsubscribeUrl,

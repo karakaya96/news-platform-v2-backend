@@ -106,7 +106,20 @@ subscriptionRoutes.post('/', async (c) => {
 
   // Send confirmation email for new or reactivated subscriptions
   if (data.type === 'email' && data.email && sendConfirmationEmail) {
-    const siteUrl = 'https://newshaberglobal.vercel.app';
+    // Read settings for email
+    const siteUrlRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'site_url'")
+      .first<{ value: string }>();
+    const siteNameRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'site_name'")
+      .first<{ value: string }>();
+    const emailFromNameRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'email_from_name'")
+      .first<{ value: string }>();
+    const emailFromAddrRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'email_from_address'")
+      .first<{ value: string }>();
+
+    const siteUrl = siteUrlRow?.value || 'https://newshaberglobal.vercel.app';
+    const siteName = siteNameRow?.value || 'NewsHaberGlobal';
+    const fromName = emailFromNameRow?.value || siteName;
+    const fromAddress = emailFromAddrRow?.value || 'noreply@newshaberglobal.com';
     const relayUrl = c.env.SMTP_RELAY_URL || '';
     const relaySecret = c.env.SMTP_RELAY_SECRET || '';
     const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(data.email)}`;
@@ -119,7 +132,9 @@ subscriptionRoutes.post('/', async (c) => {
           body: JSON.stringify({
             secret: relaySecret,
             to: data.email,
-            subject: '✅ NewsHaberGlobal Aboneliğiniz Onaylandı',
+            from: fromAddress,
+            fromName,
+            subject: `✅ ${siteName} Aboneliğiniz Onaylandı`,
             html: `
               <!DOCTYPE html>
               <html lang="tr">
@@ -129,13 +144,13 @@ subscriptionRoutes.post('/', async (c) => {
                   <tr><td align="center" style="padding:20px 0">
                     <table role="presentation" width="600" style="border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1)">
                       <tr><td style="background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:24px;text-align:center">
-                        <h1 style="color:#fff;margin:0;font-size:22px">📰 NewsHaberGlobal</h1>
+                        <h1 style="color:#fff;margin:0;font-size:22px">📰 ${siteName}</h1>
                         <p style="color:rgba(255,255,255,.8);margin:5px 0 0;font-size:13px">Güvenilir Haber Kaynağınız</p>
                       </td></tr>
                       <tr><td style="padding:30px">
                         <h2 style="color:#1e293b;margin:0 0 16px;font-size:20px">Aboneliğiniz Onaylandı! ✅</h2>
                         <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">Merhaba,</p>
-                        <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">NewsHaberGlobal e-posta bildirim aboneliğiniz başarıyla oluşturuldu. Artık yeni haberler yayınlandığında sizi bilgilendireceğiz.</p>
+                        <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">${siteName} e-posta bildirim aboneliğiniz başarıyla oluşturuldu. Artık yeni haberler yayınlandığında sizi bilgilendireceğiz.</p>
                         <div style="background:#f1f5f9;border-radius:8px;padding:16px;margin-bottom:16px">
                           <p style="color:#475569;font-size:14px;margin:0 0 8px"><strong>📬 E-posta:</strong> ${data.email}</p>
                           <p style="color:#475569;font-size:14px;margin:0"><strong>📂 Kategoriler:</strong> ${data.categories && data.categories.length > 0 ? data.categories.join(', ') : 'Tümü'}</p>
@@ -145,7 +160,7 @@ subscriptionRoutes.post('/', async (c) => {
                       </td></tr>
                       <tr><td style="background:#f8fafc;padding:20px 30px;border-top:1px solid #e2e8f0;text-align:center">
                         <a href="${unsubscribeUrl}" style="color:#ef4444;text-decoration:none;font-size:13px;font-weight:500">✖ Aboneliği İptal Et</a>
-                        <p style="color:#94a3b8;font-size:12px;margin:8px 0 0"><a href="${siteUrl}" style="color:#6366f1;text-decoration:none">NewsHaberGlobal</a> © 2026</p>
+                        <p style="color:#94a3b8;font-size:12px;margin:8px 0 0"><a href="${siteUrl}" style="color:#6366f1;text-decoration:none">${siteName}</a> © ${new Date().getFullYear()}</p>
                       </td></tr>
                     </table>
                   </td></tr>
