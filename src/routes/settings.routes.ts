@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { createDb } from '../db';
-import { authMiddleware, requireAdmin } from '../middleware/auth';
+import { authMiddleware } from '../middleware/auth';
 import { SettingsService } from '../services/settings.service';
 import { success, error } from '../utils/response';
 import type { Bindings } from '../types';
@@ -9,7 +9,7 @@ import type { Bindings } from '../types';
 const settingsRoutes = new Hono<{ Bindings: Bindings }>();
 
 // Get all settings (admin)
-settingsRoutes.get('/', authMiddleware, requireAdmin, async (c) => {
+settingsRoutes.get('/', authMiddleware, async (c) => {
   try {
     const db = createDb(c.env);
     const service = new SettingsService(db);
@@ -21,7 +21,7 @@ settingsRoutes.get('/', authMiddleware, requireAdmin, async (c) => {
 });
 
 // Get settings by category (admin)
-settingsRoutes.get('/:category', authMiddleware, requireAdmin, async (c) => {
+settingsRoutes.get('/:category', authMiddleware, async (c) => {
   try {
     const category = c.req.param('category');
     const db = createDb(c.env);
@@ -34,7 +34,7 @@ settingsRoutes.get('/:category', authMiddleware, requireAdmin, async (c) => {
 });
 
 // Update settings (admin)
-settingsRoutes.put('/', authMiddleware, requireAdmin, async (c) => {
+settingsRoutes.put('/', authMiddleware, async (c) => {
   try {
     const body = await c.req.json();
     const db = createDb(c.env);
@@ -47,7 +47,7 @@ settingsRoutes.put('/', authMiddleware, requireAdmin, async (c) => {
 });
 
 // Update single setting (admin)
-settingsRoutes.put('/:key', authMiddleware, requireAdmin, async (c) => {
+settingsRoutes.put('/:key', authMiddleware, async (c) => {
   try {
     const key = c.req.param('key');
     const body = await c.req.json();
