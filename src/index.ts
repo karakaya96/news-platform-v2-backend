@@ -10,6 +10,7 @@ import commentRoutes from './routes/comment.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import newsRoutes from './routes/news.routes';
 import searchRoutes from './routes/search.routes';
+import settingsRoutes from './routes/settings.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import uploadRoutes from './routes/upload.routes';
 import type {
@@ -84,6 +85,7 @@ app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/comments', commentRoutes);
 app.route('/api/subscribe', subscriptionRoutes);
 app.route('/api/search', searchRoutes);
+app.route('/api/settings', settingsRoutes);
 
 // Test endpoint for cron (secured)
 app.get('/api/admin/trigger-cron', async (c) => {

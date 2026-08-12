@@ -139,6 +139,15 @@ export const notificationLog = sqliteTable('notification_log', {
   statusIdx: index('notification_log_status_idx').on(table.status),
 }));
 
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  category: text('category').notNull().default('general'),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  categoryIdx: index('settings_category_idx').on(table.category),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
@@ -159,3 +168,6 @@ export type NewSubscription = typeof subscriptions.$inferInsert;
 
 export type NotificationLog = typeof notificationLog.$inferSelect;
 export type NewNotificationLog = typeof notificationLog.$inferInsert;
+
+export type Setting = typeof settings.$inferSelect;
+export type NewSetting = typeof settings.$inferInsert;
