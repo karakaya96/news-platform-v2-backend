@@ -57,16 +57,11 @@ def load_env():
 load_env()
 
 # ─────────────────────────────────────────────
-# SSL CONTEXT (ISP proxy / WiFi quirks)
+# SSL CONTEXT
 # ─────────────────────────────────────────────
-_SSL_CTX = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-_SSL_CTX.check_hostname = False
-_SSL_CTX.verify_mode = ssl.CERT_NONE
-# ISP'ler TLS version downgrade yapıyor olabilir - tüm versiyonlara izin ver
-_SSL_CTX.minimum_version = ssl.TLSVersion.TLSv1
-_SSL_CTX.maximum_version = ssl.TLSVersion.MAXIMUM_SUPPORTED
-# Cipher'ları da aç
-_SSL_CTX.set_ciphers('DEFAULT:@SECLEVEL=0')
+# SSL doğrulamasını varsayılan olarak açık tut.
+# Sadece SSL interception yapan ISP'ler için fallback olarak verify=False kullanılır.
+_SSL_CTX = ssl.create_default_context()
 
 # ─────────────────────────────────────────────
 # YAPILANDIRMA
@@ -332,6 +327,7 @@ def _embed_images_in_content(content: str, images: list[str]) -> str:
     
     Fotoğrafları metnin uzunluğuna göre eşit aralıklarla dağıtır.
     Her fotoğraf <img> HTML tag'i olarak eklenir.
+    Yeni editör formatına uygun: class="rounded-lg max-w-full my-4"
     """
     if not images or not content:
         return content
@@ -341,7 +337,7 @@ def _embed_images_in_content(content: str, images: list[str]) -> str:
     if len(paragraphs) < 2:
         # Tek paragraf varsa sonuna ekle
         img_html = "\n\n".join(
-            f'<img src="{u}" alt="Haber görseli" style="max-width:100%;border-radius:8px;margin:16px 0;" />'
+            f'<img src="{u}" alt="Haber gorseli" class="rounded-lg max-w-full my-4" />'
             for u in images
         )
         return content + "\n\n" + img_html
@@ -354,13 +350,13 @@ def _embed_images_in_content(content: str, images: list[str]) -> str:
     if num_images == 1:
         # Tek fotoğraf → %40 noktasına
         insert_pos = max(1, int(num_paragraphs * 0.4))
-        img_html = f'\n\n<img src="{images[0]}" alt="Haber görseli" style="max-width:100%;border-radius:8px;margin:16px 0;" />\n\n'
+        img_html = f'\n\n<img src="{images[0]}" alt="Haber gorseli" class="rounded-lg max-w-full my-4" />\n\n'
         paragraphs.insert(insert_pos, img_html)
     elif num_images == 2:
         # İki fotoğraf → %30 ve %60
         positions = [int(num_paragraphs * 0.3), int(num_paragraphs * 0.6)]
         for i, pos in enumerate(positions):
-            img_html = f'\n\n<img src="{images[i]}" alt="Haber görseli" style="max-width:100%;border-radius:8px;margin:16px 0;" />\n\n'
+            img_html = f'\n\n<img src="{images[i]}" alt="Haber gorseli" class="rounded-lg max-w-full my-4" />\n\n'
             paragraphs.insert(pos + i, img_html)  # +i çünkü önceki ekleme offset yaratır
     else:
         # 3+ fotoğraf → eşit dağıtım
@@ -368,7 +364,7 @@ def _embed_images_in_content(content: str, images: list[str]) -> str:
         for i in range(num_images):
             pos = int(step * (i + 1)) + i  # +i offset
             pos = min(pos, len(paragraphs))
-            img_html = f'\n\n<img src="{images[i]}" alt="Haber görseli" style="max-width:100%;border-radius:8px;margin:16px 0;" />\n\n'
+            img_html = f'\n\n<img src="{images[i]}" alt="Haber gorseli" class="rounded-lg max-w-full my-4" />\n\n'
             paragraphs.insert(pos, img_html)
 
     return "\n\n".join(paragraphs)
@@ -673,130 +669,93 @@ def deduplicate_videos(videos: list[dict]) -> list[dict]:
 def generate_video_embed(video: dict) -> str:
     """Video için HTML embed kodu oluşturur.
 
+    Yeni editör formatı: div[data-video-embed] ile sarmalanmış.
+    TipTap VideoEmbed node'unun parseHTML'i bu formatı tanır.
+
     Desteklenen tipler:
     - youtube_iframe / youtube_link → YouTube embed iframe
     - vimeo_iframe → Vimeo embed iframe
     - dailymotion_iframe → Dailymotion embed iframe
     - bloomberg_iframe → Bloomberg embed iframe
-    - tr_site_iframe → Türk siteleri embed iframe (Milliyet, Hürriyet, CNN Türk, vs.)
+    - tr_site_iframe → Türk siteleri embed iframe
     - jsonld_iframe → JSON-LD'den gelen embed URL
     - direct_video → HTML5 <video> tag
     """
+    import html as _html_mod
+
     vtype = video["type"]
     url = video["url"]
+    title = video.get("title", "")
 
-    # YouTube iframe (zaten embed URL)
-    if vtype == "youtube_iframe":
-        return (
-            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
-            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
-            f'<iframe src="{url}" style="position:absolute;top:0;left:0;width:100%;'
-            f'height:100%;border:0;" allowfullscreen allow="accelerometer; autoplay; '
-            f'clipboard-write; encrypted-media; gyroscope; picture-in-picture">'
-            f'</iframe></div>'
-        )
+    # Video tipini editörün beklediği formata çevir
+    embed_type = "iframe"
+    if vtype.startswith("youtube"):
+        embed_type = "youtube"
+    elif vtype.startswith("vimeo"):
+        embed_type = "vimeo"
+    elif vtype.startswith("dailymotion"):
+        embed_type = "dailymotion"
+    elif vtype == "direct_video":
+        embed_type = "mp4"
 
-    # YouTube watch link → embed URL'ye çevir
+    # Embed URL oluştur
+    embed_url = url
     if vtype == "youtube_link":
         video_id = url.split("v=")[-1].split("&")[0]
         embed_url = f"https://www.youtube.com/embed/{video_id}"
-        return (
-            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
-            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
-            f'<iframe src="{embed_url}" style="position:absolute;top:0;left:0;width:100%;'
-            f'height:100%;border:0;" allowfullscreen allow="accelerometer; autoplay; '
-            f'clipboard-write; encrypted-media; gyroscope; picture-in-picture">'
-            f'</iframe></div>'
-        )
+    elif vtype == "youtube_iframe":
+        embed_url = url
+    elif vtype == "vimeo_iframe":
+        embed_url = url
+    elif vtype == "dailymotion_iframe":
+        embed_url = url
 
-    # Vimeo
-    if vtype == "vimeo_iframe":
-        return (
-            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
-            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
-            f'<iframe src="{url}" style="position:absolute;top:0;left:0;width:100%;'
-            f'height:100%;border:0;" allowfullscreen></iframe></div>'
-        )
+    # Güvenli HTML escape
+    safe_url = _html_mod.escape(embed_url, quote=True)
+    safe_title = _html_mod.escape(title, quote=True)
 
-    # Dailymotion
-    if vtype == "dailymotion_iframe":
-        return (
-            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
-            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
-            f'<iframe src="{url}" style="position:absolute;top:0;left:0;width:100%;'
-            f'height:100%;border:0;" allowfullscreen></iframe></div>'
-        )
+    # Yeni editör formatı: div[data-video-embed]
+    wrapper_attrs = (
+        f'data-video-embed '
+        f'data-video-src="{safe_url}" '
+        f'data-video-type="{embed_type}" '
+        f'data-video-title="{safe_title}" '
+        f'class="video-embed" '
+        f'style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;'
+        f'border-radius:12px;margin:24px 0;background:#0f172a;"'
+    )
 
-    # Bloomberg
-    if vtype == "bloomberg_iframe":
-        return (
-            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
-            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
-            f'<iframe src="{url}" style="position:absolute;top:0;left:0;width:100%;'
-            f'height:100%;border:0;" allowfullscreen></iframe></div>'
-        )
+    inner_style = "position:absolute;top:0;left:0;width:100%;height:100%;"
 
-    # Türk siteleri embed iframe (Milliyet, Hürriyet, CNN Türk, DHA, TRT Haber, AA, NTV, Habertürk, vs.)
-    if vtype == "tr_site_iframe":
-        return (
-            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
-            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
-            f'<iframe src="{url}" style="position:absolute;top:0;left:0;width:100%;'
-            f'height:100%;border:0;" allowfullscreen></iframe></div>'
-        )
-
-    # JSON-LD iframe
-    if vtype == "jsonld_iframe":
-        return (
-            f'<div class="video-embed" style="position:relative;padding-bottom:56.25%;'
-            f'height:0;overflow:hidden;border-radius:12px;margin:24px 0;">'
-            f'<iframe src="{url}" style="position:absolute;top:0;left:0;width:100%;'
-            f'height:100%;border:0;" allowfullscreen></iframe></div>'
-        )
-
-    # Doğrudan video dosyası (mp4, webm, flv, m3u8)
-    if vtype == "direct_video":
-        video_style = "position:absolute;top:0;left:0;right:0;bottom:0;width:100%;"
-        wrapper_style = "position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;margin:24px 0;"
-        # HLS stream (.m3u8) için hls.js desteği
+    if embed_type == "mp4":
+        # HTML5 video tag
+        video_style = f"{inner_style}object-fit:contain;"
         if url.endswith(".m3u8"):
-            return (
-                f'<div class="video-embed" style="{wrapper_style}">'
-                f'<video controls style="{video_style}" playsinline>'
-                f'<source src="{url}" type="application/x-mpegURL">'
-                f'Tarayıcınız video desteklemiyor.</video></div>'
-            )
-        # WebM
-        if url.endswith(".webm"):
-            return (
-                f'<div class="video-embed" style="{wrapper_style}">'
-                f'<video controls style="{video_style}" playsinline>'
-                f'<source src="{url}" type="video/webm">'
-                f'Tarayıcınız video desteklemiyor.</video></div>'
-            )
-        # FLV (tarayıcı desteği yok, uyarı)
-        if url.endswith(".flv"):
-            return (
-                f'<div class="video-embed" style="margin:24px 0;border-radius:12px;overflow:hidden;'
-                f'background:#1a1a2e;padding:20px;text-align:center;">'
-                f'<p style="color:#fff;margin:0 0 12px;">🎬 Video dosyası (FLV format)</p>'
-                f'<a href="{url}" target="_blank" rel="noopener" '
-                f'style="color:#4fc3f7;text-decoration:underline;">Videoyu indir/izle</a>'
-                f'</div>'
-            )
-        # MP4 / MOV / diğer (en yaygın)
-        mime = "video/mp4"
-        if url.endswith(".mov"):
-            mime = "video/quicktime"
+            source_tag = f'<source src="{safe_url}" type="application/x-mpegURL">'
+        elif url.endswith(".webm"):
+            source_tag = f'<source src="{safe_url}" type="video/webm">'
+        elif url.endswith(".mov"):
+            source_tag = f'<source src="{safe_url}" type="video/quicktime">'
+        else:
+            source_tag = f'<source src="{safe_url}" type="video/mp4">'
+
         return (
-            f'<div class="video-embed" style="{wrapper_style}">'
-            f'<video controls style="{video_style}" playsinline>'
-            f'<source src="{url}" type="{mime}">'
-            f'Tarayıcınız video desteklemiyor.</video></div>'
+            f'<div {wrapper_attrs}>'
+            f'<div style="{inner_style}">'
+            f'<video controls playsinline preload="metadata" style="{video_style}">'
+            f'{source_tag}'
+            f'</video>'
+            f'</div></div>'
         )
 
-    # Bilinmeyen tip → link olarak göster
-    return f'<p><a href="{url}" target="_blank">Video izle</a></p>'
+    # iframe tabanlı embedler (YouTube, Vimeo, Dailymotion, vb.)
+    return (
+        f'<div {wrapper_attrs}>'
+        f'<div style="{inner_style}">'
+        f'<iframe src="{safe_url}" style="border:0;" allowfullscreen '
+        f'loading="lazy" title="Video"></iframe>'
+        f'</div></div>'
+    )
 
 
 # ─────────────────────────────────────────────
@@ -1043,6 +1002,7 @@ def sanitize_html(raw: str) -> str:
         'i': [],
         'img': ['src', 'alt', 'width', 'height', 'loading'],
         'li': [],
+        'mark': [],
         'ol': ['start'],
         'p': [],
         'pre': [],
@@ -1053,11 +1013,13 @@ def sanitize_html(raw: str) -> str:
         'table': [], 'thead': [], 'tbody': [], 'tr': [], 'th': [], 'td': [],
         'u': [],
         'ul': [],
-        'video': ['controls', 'style'],
+        'video': ['controls', 'playsinline', 'preload', 'style'],
         'source': ['src', 'type'],
-        'div': ['class', 'style', 'id'],
+        'div': ['class', 'style', 'id',
+                'data-video-embed', 'data-video-src', 'data-video-type', 'data-video-title'],
         'span': ['class', 'style'],
-        'iframe': ['src', 'style', 'allowfullscreen', 'width', 'height', 'frameborder', 'allow'],
+        'iframe': ['src', 'style', 'allowfullscreen', 'width', 'height', 'frameborder', 'allow',
+                   'loading', 'title'],
     }
 
     # URLscheme whitelist (javascript:, data:, vb: engelle)
