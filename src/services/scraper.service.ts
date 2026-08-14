@@ -213,7 +213,7 @@ export class ScraperService {
       for (const kw of keywords) {
         const count = (text.match(new RegExp(kw.toLowerCase(), 'g')) || []).length;
         if (count) {
-          score += kw.toLowerCase() in title.toLowerCase() ? count * 3 : count;
+          score += title.toLowerCase().includes(kw.toLowerCase()) ? count * 3 : count;
         }
       }
       if (score > 0) scores[Number(catId)] = score;
