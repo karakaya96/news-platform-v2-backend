@@ -37,6 +37,7 @@ app.route('/api-docs', openApiApp);
 // CORS middleware - strict origin allowlist
 const ALLOWED_ORIGINS = [
   'https://newshaberglobal.vercel.app',
+  'https://frontend-psi-wheat-67.vercel.app',
   'https://newshaberglobal.com',
   'https://www.newshaberglobal.com',
 ];
