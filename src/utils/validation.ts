@@ -73,6 +73,35 @@ export const createNewsSchema = z.object({
 export const updateNewsSchema = createNewsSchema.partial();
 
 /**
+ * Preview news validation schema (for scraped/previewed news)
+ */
+export const previewNewsSchema = z.object({
+  title: z.string().min(1, 'Başlık zorunludur').max(500),
+  slug: z
+    .string()
+    .optional()
+    .transform((val) => val || undefined),
+  excerpt: z.string().max(1000).optional(),
+  content: z.string().min(1, 'İçerik zorunludur'),
+  image_url: z
+    .string()
+    .url('Geçersiz URL formatı')
+    .optional()
+    .or(z.literal(''))
+    .or(z.null())
+    .transform((val) => val || null),
+  image_alt: z.string().max(255).optional(),
+  category_id: z.number().int().positive('Kategori seçilmelidir'),
+  status: z.enum(['draft', 'published', 'archived']).default('draft'),
+  is_featured: z.boolean().default(false),
+  is_breaking: z.boolean().default(false),
+  seo_title: z.string().max(255).optional(),
+  seo_description: z.string().max(500).optional(),
+  seo_keywords: z.string().max(500).optional(),
+  tag_ids: z.array(z.number().int().positive()).optional(),
+});
+
+/**
  * Category validation schemas
  */
 export const createCategorySchema = z.object({

@@ -3,12 +3,82 @@ import { authMiddleware } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { NewsService } from '../services/news.service';
 import type { VapidConfig } from '../services/push.service';
+import { ScraperService } from '../services/scraper.service';
 import { SubscriptionService } from '../services/subscription.service';
 import type { Bindings } from '../types';
 import { error, paginated, success } from '../utils/response';
-import { createNewsSchema, updateNewsSchema } from '../utils/validation';
+import { createNewsSchema, previewNewsSchema, updateNewsSchema } from '../utils/validation';
 
 const newsRoutes = new Hono<{ Bindings: Bindings }>();
+
+// POST /api/news/preview - Admin only, scrape and preview news from URL
+newsRoutes.post('/preview', authMiddleware, async (c) => {
+  try {
+    const user = c.get('user');
+    if (user?.role !== 'admin') {
+      return error('Unauthorized', 403);
+    }
+
+    const body = await c.req.json();
+    const { url } = body as { url?: string };
+
+    if (!url) {
+      return error('URL zorunludur', 400);
+    }
+
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch {
+      return error('Geçersiz URL formatı', 400);
+    }
+
+    const scraper = new ScraperService(30000);
+    const scraped = await scraper.fetchAndParse(url);
+
+    if (!scraped.title || !scraped.content) {
+      return error('Bu URL\'den içerik çıkarılamadı', 422);
+    }
+
+    return success(scraped);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Bilinmeyen hata';
+    if (message.includes('aborted')) {
+      return error('İstek zaman aşımına uğradı', 408);
+    }
+    return error(`Scraping hatası: ${message}`, 500);
+  }
+});
+
+// POST /api/news/from-preview - Admin only, create news from preview data
+newsRoutes.post('/from-preview', authMiddleware, async (c) => {
+  try {
+    const user = c.get('user');
+    if (user?.role !== 'admin') {
+      return error('Unauthorized', 403);
+    }
+
+    const body = await c.req.json();
+    const result = previewNewsSchema.safeParse(body);
+
+    if (!result.success) {
+      const firstError = result.error.errors[0];
+      return error(firstError.message, 400);
+    }
+
+    const newsData = result.data;
+    const service = new NewsService(c.env.DB);
+    const newNews = await service.createNews({
+      ...newsData,
+      author_id: user.sub,
+    });
+
+    return success(newNews, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Bilinmeyen hata';
+    return error(message, 500);
+  }
+});
 
 // GET /api/news - Public, with pagination, filtering, search
 newsRoutes.get('/', createRateLimiter('api:news:list'), async (c) => {
