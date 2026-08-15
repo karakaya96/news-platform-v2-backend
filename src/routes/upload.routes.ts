@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
 import { canCreateNews } from '../middleware/authorization';
+import { MediaService } from '../services/media.service';
 import type { Bindings } from '../types';
 import { error, success } from '../utils/response';
 
@@ -50,6 +51,17 @@ uploadRoutes.post('/', authMiddleware, async (c) => {
 
   const publicUrl = `${getBaseUrl(c)}/api/media/${filePath}`;
 
+  // Save to database
+  const mediaService = new MediaService(c.env);
+  await mediaService.create({
+    userId: user.sub,
+    key: filePath,
+    url: publicUrl,
+    mimeType: file.type,
+    size: file.size,
+    alt: file.name,
+  });
+
   return success({ url: publicUrl, key: filePath }, 201);
 });
 
@@ -92,6 +104,22 @@ uploadRoutes.post('/avatar', authMiddleware, async (c) => {
   });
 
   const publicUrl = `${getBaseUrl(c)}/api/media/${filePath}`;
+
+  // Save to database
+  try {
+    const mediaService = new MediaService(c.env);
+    await mediaService.create({
+      userId: user.sub,
+      key: filePath,
+      url: publicUrl,
+      mimeType: file.type,
+      size: file.size,
+      alt: file.name,
+    });
+  } catch (dbErr) {
+    console.error('Media DB save error:', dbErr);
+    return error('Failed to save media record', 500);
+  }
 
   return success({ url: publicUrl }, 201);
 });

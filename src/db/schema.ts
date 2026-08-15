@@ -7,6 +7,7 @@ import {
   uniqueIndex,
   AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
 
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -148,6 +149,23 @@ export const settings = sqliteTable('settings', {
   categoryIdx: index('settings_category_idx').on(table.category),
 }));
 
+export const mediaFiles = sqliteTable('media_files', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  key: text('key').notNull().unique(),
+  url: text('url').notNull(),
+  mimeType: text('mime_type').notNull(),
+  size: integer('size').notNull(),
+  alt: text('alt'),
+  createdAt: text('created_at').notNull().default(sql`datetime('now')`),
+  updatedAt: text('updated_at').notNull().default(sql`datetime('now')`),
+}, (table) => ({
+  userIdx: index('media_files_user_idx').on(table.userId),
+  createdAtIdx: index('media_files_created_at_idx').on(table.createdAt),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
@@ -171,3 +189,6 @@ export type NewNotificationLog = typeof notificationLog.$inferInsert;
 
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
+
+export type MediaFile = typeof mediaFiles.$inferSelect;
+export type NewMediaFile = typeof mediaFiles.$inferInsert;
