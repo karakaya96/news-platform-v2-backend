@@ -20,15 +20,21 @@ mediaRoutes.get('/*', async (c) => {
     return c.text('Not found', 404);
   }
 
-  const headers = new globalThis.Headers();
+  const headers = new Headers();
   headers.set('Cache-Control', 'public, max-age=31536000');
   headers.set('Access-Control-Allow-Origin', '*');
-  headers.set('Content-Length', String(object.size));
+  headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
   if (object.httpMetadata?.contentType) {
     headers.set('Content-Type', object.httpMetadata.contentType);
   }
+  // Content-Length'i R2'den gelen object.size'dan al (stream otomatik handle eder)
+  headers.set('Content-Length', String(object.size));
 
-  return new Response(object.body as ReadableStream, { status: 200, headers });
+  // R2 object.body zaten ReadableStream, doğrudan Response'a ver
+  return new Response(object.body, {
+    status: 200,
+    headers,
+  });
 });
 
 export default mediaRoutes;

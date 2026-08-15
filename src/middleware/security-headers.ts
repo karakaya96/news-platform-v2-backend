@@ -11,8 +11,8 @@ export function securityHeaders(): MiddlewareHandler {
     // Content Security Policy - strict but allows necessary resources
     const cspDirectives = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'", // 'unsafe-inline' needed for inline scripts (Vercel Analytics, etc.)
-      "style-src 'self' 'unsafe-inline'", // 'unsafe-inline' for Tailwind/inline styles
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",
       "img-src 'self' data: https:",
       "media-src 'self' https:",
@@ -51,10 +51,16 @@ export function securityHeaders(): MiddlewareHandler {
       c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
     }
 
-    // Cross-Origin policies
-    c.header('Cross-Origin-Opener-Policy', 'same-origin');
-    c.header('Cross-Origin-Resource-Policy', 'same-origin');
-    c.header('Cross-Origin-Embedder-Policy', 'require-corp');
+    // Cross-Origin policies - skip CORP for media proxy (needs cross-origin for <img>)
+    const path = c.req.path;
+    if (!path.startsWith('/api/media/')) {
+      c.header('Cross-Origin-Opener-Policy', 'same-origin');
+      c.header('Cross-Origin-Resource-Policy', 'same-origin');
+      c.header('Cross-Origin-Embedder-Policy', 'require-corp');
+    } else {
+      // Media proxy needs cross-origin for <img> tags
+      c.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
 
     // DNS Prefetch Control
     c.header('X-DNS-Prefetch-Control', 'off');
@@ -132,7 +138,7 @@ export function adminSecurityHeaders(): MiddlewareHandler {
     // Stricter CSP for admin panel
     const adminCsp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Needed for admin panel JS frameworks
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",
       "img-src 'self' data: https:",
@@ -147,7 +153,7 @@ export function adminSecurityHeaders(): MiddlewareHandler {
 
     c.header('Content-Security-Policy', adminCsp.join('; '));
     c.header('X-Content-Type-Options', 'nosniff');
-    c.header('X-Frame-Options', 'DENY'); // Stricter - no framing at all
+    c.header('X-Frame-Options', 'DENY');
     c.header('X-XSS-Protection', '1; mode=block');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');

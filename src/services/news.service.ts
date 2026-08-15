@@ -114,15 +114,19 @@ export class NewsService {
       tagsMap.set(t.newsId, arr);
     }
 
-    // Combine all data
-    return baseNews.map((n) => ({
-      ...n,
-      categoryName: categoryMap.get(n.categoryId)?.name || '',
-      categorySlug: categoryMap.get(n.categoryId)?.slug || '',
-      categoryColor: categoryMap.get(n.categoryId)?.color || '#6366f1',
-      authorName: authorMap.get(n.authorId)?.name || '',
-      tags: tagsMap.get(n.id) || [],
-    }));
+// Combine all data
+    return baseNews.map((n) => {
+      const author = authorMap.get(n.authorId);
+      return {
+        ...n,
+        categoryName: categoryMap.get(n.categoryId)?.name || '',
+        categorySlug: categoryMap.get(n.categoryId)?.slug || '',
+        categoryColor: categoryMap.get(n.categoryId)?.color || '#6366f1',
+        authorName: author?.name || '',
+        authorAvatarUrl: author?.avatarUrl || author?.avatar_url || null,
+        tags: tagsMap.get(n.id) || [],
+      };
+    });
   }
 
   async getAllNews(
