@@ -5,11 +5,11 @@ import { error, success } from '../utils/response';
 
 const dashboardRoutes = new Hono<{ Bindings: Bindings }>();
 
-// GET /api/dashboard/stats - Admin only
+// GET /api/dashboard/stats - Any authenticated user can view
 dashboardRoutes.get('/stats', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
-    return error('Unauthorized', 403);
+  if (!user) {
+    return error('Unauthorized', 401);
   }
 
   const db = c.env.DB;

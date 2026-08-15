@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
+import { canCreateNews, canDeleteNews, canEditNews, canManageNews } from '../middleware/authorization';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { NewsService } from '../services/news.service';
 import type { VapidConfig } from '../services/push.service';
@@ -11,11 +12,11 @@ import { createNewsSchema, previewNewsSchema, updateNewsSchema } from '../utils/
 
 const newsRoutes = new Hono<{ Bindings: Bindings }>();
 
-// POST /api/news/preview - Admin only, scrape and preview news from URL
+// POST /api/news/preview - Admin/Editor, scrape and preview news from URL
 newsRoutes.post('/preview', authMiddleware, async (c) => {
   try {
     const user = c.get('user');
-    if (user?.role !== 'admin') {
+    if (!user || !canManageNews(user.role)) {
       return error('Unauthorized', 403);
     }
 
@@ -26,7 +27,6 @@ newsRoutes.post('/preview', authMiddleware, async (c) => {
       return error('URL zorunludur', 400);
     }
 
-    // Validate URL format
     try {
       new URL(url);
     } catch {
@@ -50,11 +50,11 @@ newsRoutes.post('/preview', authMiddleware, async (c) => {
   }
 });
 
-// POST /api/news/from-preview - Admin only, create news from preview data
+// POST /api/news/from-preview - Admin/Editor, create news from preview data
 newsRoutes.post('/from-preview', authMiddleware, async (c) => {
   try {
     const user = c.get('user');
-    if (user?.role !== 'admin') {
+    if (!user || !canManageNews(user.role)) {
       return error('Unauthorized', 403);
     }
 
@@ -123,13 +123,8 @@ newsRoutes.get('/breaking', async (c) => {
   return success(news);
 });
 
-// GET /api/news/id/:id - Admin only, fetch by ID
+// GET /api/news/id/:id - Auth required (any role), fetch by ID for editing
 newsRoutes.get('/id/:id', authMiddleware, async (c) => {
-  const user = c.get('user');
-  if (user?.role !== 'admin') {
-    return error('Unauthorized', 403);
-  }
-
   const id = Number.parseInt(c.req.param('id'), 10);
   const service = new NewsService(c.env.DB);
   const news = await service.getNewsById(id);
@@ -171,19 +166,16 @@ async function triggerNotifications(
   vapidPublicKey: string,
   vapidPrivateKey: string
 ) {
-  // Check if notifications are enabled
   const notifEnabledRow = await db.prepare("SELECT value FROM settings WHERE key = 'notifications_enabled'")
     .first<{ value: string }>();
   if (notifEnabledRow && notifEnabledRow.value === 'false') {
-    return; // Notifications disabled
+    return;
   }
 
-  // Check if email notifications are enabled
   const emailEnabledRow = await db.prepare("SELECT value FROM settings WHERE key = 'notifications_email_enabled'")
     .first<{ value: string }>();
   const emailEnabled = !emailEnabledRow || emailEnabledRow.value !== 'false';
 
-  // Read email settings
   const emailFromNameRow = await db.prepare("SELECT value FROM settings WHERE key = 'email_from_name'")
     .first<{ value: string }>();
   const emailFromAddrRow = await db.prepare("SELECT value FROM settings WHERE key = 'email_from_address'")
@@ -199,9 +191,7 @@ async function triggerNotifications(
 
   for (const sub of subs) {
     if (sub.type === 'email' && sub.email) {
-      // Skip email if email notifications are disabled
       if (!emailEnabled) continue;
-      // Insert notification log
       const notifResult = await db
         .prepare(`
         INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
@@ -218,7 +208,6 @@ async function triggerNotifications(
 
       const notifId = notifResult.meta?.last_row_id;
 
-      // Send email immediately
       if (relayUrl && notifId) {
         try {
           const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(sub.email)}`;
@@ -264,7 +253,6 @@ async function triggerNotifications(
       }
     }
 
-    // Browser push notification - send immediately using webcrypto-web-push
     if (
       sub.type === 'browser' &&
       sub.endpoint &&
@@ -273,7 +261,6 @@ async function triggerNotifications(
       vapidPublicKey &&
       vapidPrivateKey
     ) {
-      // Insert notification log first
       const notifResult = await db
         .prepare(`
         INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
@@ -320,7 +307,6 @@ async function triggerNotifications(
             .bind(notifId)
             .run();
         } else if (result.error === 'subscription_expired') {
-          // Remove expired subscription
           await db.prepare('DELETE FROM subscriptions WHERE id = ?').bind(sub.id).run();
           if (notifId)
             await db
@@ -351,10 +337,10 @@ async function triggerNotifications(
   }
 }
 
-// POST /api/news - Admin only
+// POST /api/news - Admin/Editor/Author
 newsRoutes.post('/', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canCreateNews(user.role)) {
     return error('Unauthorized', 403);
   }
 
@@ -384,13 +370,11 @@ newsRoutes.post('/', authMiddleware, async (c) => {
     tag_ids?: number[];
   });
 
-  // If published immediately, trigger notifications
   if (parsed.data.status === 'published') {
     const siteUrl = 'https://newshaberglobal.vercel.app';
     const relayUrl = c.env.SMTP_RELAY_URL || '';
     const relaySecret = c.env.SMTP_RELAY_SECRET || '';
 
-    // Get category slug
     const cat = await c.env.DB.prepare('SELECT slug FROM categories WHERE id = ?')
       .bind(news.categoryId)
       .first<{ slug: string }>();
@@ -414,26 +398,28 @@ newsRoutes.post('/', authMiddleware, async (c) => {
   return success(news, 201);
 });
 
-// PUT /api/news/:id - Admin only
+// PUT /api/news/:id - Admin/Editor (all news) or Author (own news only)
 newsRoutes.put('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user) return error('Unauthorized', 401);
+
+  const id = Number.parseInt(c.req.param('id'), 10);
+  const service = new NewsService(c.env.DB);
+
+  const existing = await service.getNewsById(id);
+  if (!existing) {
+    return error('Article not found', 404);
+  }
+
+  // Authors can only edit their own news
+  if (!canEditNews(user.role, existing.authorId, user.sub)) {
     return error('Unauthorized', 403);
   }
 
-  const id = Number.parseInt(c.req.param('id'), 10);
   const body = await c.req.json();
   const parsed = updateNewsSchema.safeParse(body);
   if (!parsed.success) {
     return error(parsed.error.issues[0].message, 400);
-  }
-
-  const service = new NewsService(c.env.DB);
-
-  // Check if this is a publish action (status changing to 'published')
-  const existing = await service.getNewsById(id);
-  if (!existing) {
-    return error('Article not found', 404);
   }
 
   const wasPublished = existing.status === 'published';
@@ -444,13 +430,11 @@ newsRoutes.put('/:id', authMiddleware, async (c) => {
     return error('Article not found', 404);
   }
 
-  // If this is a new publish action, trigger notifications
   if (isPublishingNow) {
     const siteUrl = 'https://newshaberglobal.vercel.app';
     const relayUrl = c.env.SMTP_RELAY_URL || '';
     const relaySecret = c.env.SMTP_RELAY_SECRET || '';
 
-    // Get category slug
     const cat = await c.env.DB.prepare('SELECT slug FROM categories WHERE id = ?')
       .bind(news.categoryId)
       .first<{ slug: string }>();
@@ -474,10 +458,10 @@ newsRoutes.put('/:id', authMiddleware, async (c) => {
   return success(news);
 });
 
-// DELETE /api/news/:id - Admin only
+// DELETE /api/news/:id - Admin/Editor only
 newsRoutes.delete('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canDeleteNews(user.role)) {
     return error('Unauthorized', 403);
   }
 

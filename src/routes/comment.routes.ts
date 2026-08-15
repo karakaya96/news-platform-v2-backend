@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth';
+import { canModerateComments } from '../middleware/authorization';
 import { CommentService } from '../services/comment.service';
 import type { Bindings } from '../types';
 import { error, paginated, success } from '../utils/response';
@@ -142,7 +143,7 @@ commentRoutes.post('/:newsId', async (c) => {
 // GET /api/comments/admin/all - Get all comments with filtering
 commentRoutes.get('/admin/all', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canModerateComments(user.role)) {
     return error('Yetkisiz erişim', 403);
   }
 
@@ -162,7 +163,7 @@ commentRoutes.get('/admin/all', authMiddleware, async (c) => {
 // PUT /api/comments/admin/:id/status - Update comment status
 commentRoutes.put('/admin/:id/status', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canModerateComments(user.role)) {
     return error('Yetkisiz erişim', 403);
   }
 
@@ -191,7 +192,7 @@ commentRoutes.put('/admin/:id/status', authMiddleware, async (c) => {
 // POST /api/comments/admin/:id/reply - Reply to a comment
 commentRoutes.post('/admin/:id/reply', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canModerateComments(user.role)) {
     return error('Yetkisiz erişim', 403);
   }
 
@@ -236,7 +237,7 @@ commentRoutes.post('/admin/:id/reply', authMiddleware, async (c) => {
 // DELETE /api/comments/admin/:id - Delete a comment
 commentRoutes.delete('/admin/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canModerateComments(user.role)) {
     return error('Yetkisiz erişim', 403);
   }
 
@@ -258,7 +259,7 @@ commentRoutes.delete('/admin/:id', authMiddleware, async (c) => {
 // PUT /api/comments/admin/bulk/status - Bulk update comment status
 commentRoutes.put('/admin/bulk/status', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canModerateComments(user.role)) {
     return error('Yetkisiz erişim', 403);
   }
 
@@ -278,7 +279,7 @@ commentRoutes.put('/admin/bulk/status', authMiddleware, async (c) => {
 // GET /api/comments/admin/pending/count - Get pending comment count
 commentRoutes.get('/admin/pending/count', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canModerateComments(user.role)) {
     return error('Yetkisiz erişim', 403);
   }
 

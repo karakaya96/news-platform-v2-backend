@@ -1,14 +1,15 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
+import { canCreateNews } from '../middleware/authorization';
 import type { Bindings } from '../types';
 import { error, success } from '../utils/response';
 
 const uploadRoutes = new Hono<{ Bindings: Bindings }>();
 
-// POST /api/upload - Admin only, accepts multipart form data
+// POST /api/upload - Admin/Editor/Author, accepts multipart form data
 uploadRoutes.post('/', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canCreateNews(user.role)) {
     return error('Unauthorized', 403);
   }
 

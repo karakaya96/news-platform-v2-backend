@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
+import { canManageCategories } from '../middleware/authorization';
 import { CategoryService } from '../services/category.service';
 import { NewsService } from '../services/news.service';
 import type { Bindings } from '../types';
@@ -61,10 +62,10 @@ categoryRoutes.get('/:slug', async (c) => {
   return success({ ...category, news, total, page, limit, article_count: countResult?.count || 0 });
 });
 
-// POST /api/categories - Admin only
+// POST /api/categories - Admin/Editor
 categoryRoutes.post('/', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canManageCategories(user.role)) {
     return error('Unauthorized', 403);
   }
 
@@ -87,10 +88,10 @@ categoryRoutes.post('/', authMiddleware, async (c) => {
   return success(category, 201);
 });
 
-// PUT /api/categories/:id - Admin only
+// PUT /api/categories/:id - Admin/Editor
 categoryRoutes.put('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canManageCategories(user.role)) {
     return error('Unauthorized', 403);
   }
 
@@ -109,10 +110,10 @@ categoryRoutes.put('/:id', authMiddleware, async (c) => {
   return success(category);
 });
 
-// DELETE /api/categories/:id - Admin only
+// DELETE /api/categories/:id - Admin/Editor
 categoryRoutes.delete('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
+  if (!user || !canManageCategories(user.role)) {
     return error('Unauthorized', 403);
   }
 
