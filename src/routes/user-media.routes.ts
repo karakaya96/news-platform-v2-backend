@@ -18,7 +18,7 @@ userMediaRoutes.get('/', async (c) => {
   const service = new MediaService(c.env);
   const result = await service.getByUser(user.sub, page, limit);
 
-  return paginated(result.files, result.pagination.total, page, limit);
+  return success({ files: result.files, pagination: result.pagination });
 });
 
 userMediaRoutes.delete('/', async (c) => {
