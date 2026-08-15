@@ -91,8 +91,8 @@ app.route('/api/subscribe', subscriptionRoutes);
 app.route('/api/search', searchRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/users', userRoutes);
-app.route('/api/media', mediaRoutes);
 app.route('/api/user/media', userMediaRoutes);
+app.route('/api/media', mediaRoutes);
 
 // Test endpoint for cron (secured)
 app.get('/api/admin/trigger-cron', async (c) => {
