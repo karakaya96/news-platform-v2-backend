@@ -13,6 +13,7 @@ import searchRoutes from './routes/search.routes';
 import settingsRoutes from './routes/settings.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import uploadRoutes from './routes/upload.routes';
+import userRoutes from './routes/user.routes';
 import type {
   Bindings,
   CronEvent,
@@ -87,6 +88,7 @@ app.route('/api/comments', commentRoutes);
 app.route('/api/subscribe', subscriptionRoutes);
 app.route('/api/search', searchRoutes);
 app.route('/api/settings', settingsRoutes);
+app.route('/api/users', userRoutes);
 
 // Test endpoint for cron (secured)
 app.get('/api/admin/trigger-cron', async (c) => {

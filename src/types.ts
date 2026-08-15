@@ -3,7 +3,7 @@ export interface User {
   email: string;
   password_hash: string;
   name: string;
-  role: 'admin' | 'editor';
+  role: 'admin' | 'editor' | 'author' | 'viewer';
   avatar_url: string | null;
   created_at: string;
   updated_at: string;
