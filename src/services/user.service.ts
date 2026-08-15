@@ -1,14 +1,23 @@
 import type { User } from '../types';
 import { hashPassword, verifyPassword } from '../utils/auth';
 
-type SafeUser = Omit<User, 'password_hash'>;
+type SafeUser = Omit<User, 'password_hash'> & {
+  avatarUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export class UserService {
   constructor(private db: import('@cloudflare/workers-types').D1Database) {}
 
   private sanitize(user: User): SafeUser {
-    const { password_hash, ...safe } = user;
-    return safe;
+    const { password_hash, ...rest } = user;
+    return {
+      ...rest,
+      avatarUrl: user.avatar_url ?? null,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at,
+    };
   }
 
   async list(page = 1, limit = 20, search?: string): Promise<{ users: SafeUser[]; total: number }> {
