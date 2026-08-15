@@ -48,4 +48,47 @@ uploadRoutes.post('/', authMiddleware, async (c) => {
   return success({ url: publicUrl, key: filePath }, 201);
 });
 
+// POST /api/upload/avatar - Any authed user, upload profile avatar
+uploadRoutes.post('/avatar', authMiddleware, async (c) => {
+  const user = c.get('user');
+  if (!user) {
+    return error('Unauthorized', 401);
+  }
+
+  if (!c.env.R2) {
+    return error('R2 storage not configured', 503);
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get('file') as unknown as File | null;
+
+  if (!file) {
+    return error('No file provided', 400);
+  }
+
+  const maxSize = 2 * 1024 * 1024; // 2MB for avatars
+  if (file.size > maxSize) {
+    return error('Avatar size exceeds 2MB limit', 400);
+  }
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    return error('Invalid file type. Allowed: JPEG, PNG, WebP', 400);
+  }
+
+  const ext = file.name.split('.').pop() || 'jpg';
+  const fileName = `avatar-${user.sub}-${Date.now()}.${ext}`;
+  const filePath = `avatars/${fileName}`;
+
+  const arrayBuffer = await file.arrayBuffer();
+  await c.env.R2.put(filePath, arrayBuffer, {
+    httpMetadata: { contentType: file.type },
+    cacheControl: 'public, max-age=31536000',
+  });
+
+  const publicUrl = `https://news-platform-assets.r2.dev/${filePath}`;
+
+  return success({ url: publicUrl }, 201);
+});
+
 export default uploadRoutes;
