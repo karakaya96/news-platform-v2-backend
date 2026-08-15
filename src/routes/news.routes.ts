@@ -458,15 +458,23 @@ newsRoutes.put('/:id', authMiddleware, async (c) => {
   return success(news);
 });
 
-// DELETE /api/news/:id - Admin/Editor only
+// DELETE /api/news/:id - Admin/Editor (all news) or Author (own news only)
 newsRoutes.delete('/:id', authMiddleware, async (c) => {
   const user = c.get('user');
-  if (!user || !canDeleteNews(user.role)) {
-    return error('Unauthorized', 403);
-  }
+  if (!user) return error('Unauthorized', 401);
 
   const id = Number.parseInt(c.req.param('id'), 10);
   const service = new NewsService(c.env.DB);
+  const existing = await service.getNewsById(id);
+
+  if (!existing) {
+    return error('Article not found', 404);
+  }
+
+  if (!canDeleteNews(user.role, existing.authorId, user.sub)) {
+    return error('Unauthorized', 403);
+  }
+
   const deleted = await service.deleteNews(id);
   if (!deleted) {
     return error('Article not found', 404);

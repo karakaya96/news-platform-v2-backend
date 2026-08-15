@@ -58,8 +58,10 @@ export function canEditNews(role: string, authorId: number, userId: number): boo
 }
 
 // Helper: check if user can delete news
-export function canDeleteNews(role: string): boolean {
-  return ['admin', 'editor'].includes(role);
+export function canDeleteNews(role: string, authorId?: number, userId?: number): boolean {
+  if (role === 'admin' || role === 'editor') return true;
+  if (role === 'author' && authorId !== undefined && userId !== undefined && authorId === userId) return true;
+  return false;
 }
 
 // Helper: check if user can manage categories
