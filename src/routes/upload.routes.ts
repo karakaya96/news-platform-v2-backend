@@ -6,6 +6,8 @@ import { error, success } from '../utils/response';
 
 const uploadRoutes = new Hono<{ Bindings: Bindings }>();
 
+const R2_PUBLIC_URL = 'https://pub-cdb7e3c63a8f40cc8128ecb2865a75d5.r2.dev';
+
 // POST /api/upload - Admin/Editor/Author, accepts multipart form data
 uploadRoutes.post('/', authMiddleware, async (c) => {
   const user = c.get('user');
@@ -43,7 +45,7 @@ uploadRoutes.post('/', authMiddleware, async (c) => {
     httpMetadata: { contentType: file.type },
   });
 
-  const publicUrl = `https://news-platform-assets.r2.dev/${filePath}`;
+  const publicUrl = `${R2_PUBLIC_URL}/${filePath}`;
 
   return success({ url: publicUrl, key: filePath }, 201);
 });
@@ -86,7 +88,7 @@ uploadRoutes.post('/avatar', authMiddleware, async (c) => {
     cacheControl: 'public, max-age=31536000',
   });
 
-  const publicUrl = `https://news-platform-assets.r2.dev/${filePath}`;
+  const publicUrl = `${R2_PUBLIC_URL}/${filePath}`;
 
   return success({ url: publicUrl }, 201);
 });
