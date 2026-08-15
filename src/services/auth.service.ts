@@ -24,8 +24,16 @@ export class AuthService {
       jwtSecret
     );
 
-    const { password_hash, ...userWithoutPassword } = user;
-    return { user: userWithoutPassword, token };
+    const { password_hash, avatar_url, created_at, updated_at, ...userWithoutPassword } = user;
+    return {
+      user: {
+        ...userWithoutPassword,
+        avatarUrl: avatar_url,
+        createdAt: created_at,
+        updatedAt: updated_at,
+      },
+      token,
+    };
   }
 
   async getProfile(userId: number): Promise<Omit<User, 'password_hash'> | null> {
@@ -34,8 +42,25 @@ export class AuthService {
         'SELECT id, email, name, role, avatar_url, created_at, updated_at FROM users WHERE id = ?'
       )
       .bind(userId)
-      .first<Omit<User, 'password_hash'>>();
-    return user || null;
+      .first<{
+        id: number;
+        email: string;
+        name: string;
+        role: string;
+        avatar_url: string | null;
+        created_at: string;
+        updated_at: string;
+      }>();
+    if (!user) return null;
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      avatarUrl: user.avatar_url,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at,
+    };
   }
 
   async seedAdminPassword(): Promise<string> {
