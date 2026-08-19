@@ -6,6 +6,7 @@ import type { Bindings, CreateSubscriptionDto, SubscriptionWithCategories } from
 import { error, success } from '../utils/response';
 import { sanitizeEmail } from '../utils/sanitize';
 import { turkeyNowSQL } from '../utils/time';
+import { buildConfirmationEmailTemplate } from '../utils/email-templates';
 
 const subscriptionRoutes = new Hono<{ Bindings: Bindings }>();
 
@@ -120,55 +121,33 @@ subscriptionRoutes.post('/', async (c) => {
     const siteName = siteNameRow?.value || 'NewsHaberGlobal';
     const fromName = emailFromNameRow?.value || siteName;
     const fromAddress = emailFromAddrRow?.value || 'noreply@newshaberglobal.com';
-    const relayUrl = c.env.SMTP_RELAY_URL || '';
-    const relaySecret = c.env.SMTP_RELAY_SECRET || '';
     const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(data.email)}`;
 
-    if (relayUrl) {
+    // Send confirmation email via Gmail OAuth
+    const gmailConfig = {
+      clientId: c.env.GMAIL_CLIENT_ID || '',
+      clientSecret: c.env.GMAIL_CLIENT_SECRET || '',
+      refreshToken: c.env.GMAIL_REFRESH_TOKEN || '',
+      fromEmail: c.env.GMAIL_FROM_EMAIL || 'newshaberglobal@gmail.com',
+    };
+
+    if (gmailConfig.clientId && gmailConfig.refreshToken) {
       try {
-        await fetch(relayUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            secret: relaySecret,
-            to: data.email,
-            from: fromAddress,
-            fromName,
-            subject: `✅ ${siteName} Aboneliğiniz Onaylandı`,
-            html: `
-              <!DOCTYPE html>
-              <html lang="tr">
-              <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-              <body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-                <table role="presentation" width="100%" style="border-collapse:collapse">
-                  <tr><td align="center" style="padding:20px 0">
-                    <table role="presentation" width="600" style="border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1)">
-                      <tr><td style="background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:24px;text-align:center">
-                        <h1 style="color:#fff;margin:0;font-size:22px">📰 ${siteName}</h1>
-                        <p style="color:rgba(255,255,255,.8);margin:5px 0 0;font-size:13px">Güvenilir Haber Kaynağınız</p>
-                      </td></tr>
-                      <tr><td style="padding:30px">
-                        <h2 style="color:#1e293b;margin:0 0 16px;font-size:20px">Aboneliğiniz Onaylandı! ✅</h2>
-                        <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">Merhaba,</p>
-                        <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">${siteName} e-posta bildirim aboneliğiniz başarıyla oluşturuldu. Artık yeni haberler yayınlandığında sizi bilgilendireceğiz.</p>
-                        <div style="background:#f1f5f9;border-radius:8px;padding:16px;margin-bottom:16px">
-                          <p style="color:#475569;font-size:14px;margin:0 0 8px"><strong>📬 E-posta:</strong> ${data.email}</p>
-                          <p style="color:#475569;font-size:14px;margin:0"><strong>📂 Kategoriler:</strong> ${data.categories && data.categories.length > 0 ? data.categories.join(', ') : 'Tümü'}</p>
-                        </div>
-                        <a href="${siteUrl}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:500;margin-bottom:16px">Siteyi Ziyaret Et →</a>
-                        <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0">Aboneliğinizi iptal etmek isterseniz aşağıdaki bağlantıyı kullanabilirsiniz.</p>
-                      </td></tr>
-                      <tr><td style="background:#f8fafc;padding:20px 30px;border-top:1px solid #e2e8f0;text-align:center">
-                        <a href="${unsubscribeUrl}" style="color:#ef4444;text-decoration:none;font-size:13px;font-weight:500">✖ Aboneliği İptal Et</a>
-                        <p style="color:#94a3b8;font-size:12px;margin:8px 0 0"><a href="${siteUrl}" style="color:#6366f1;text-decoration:none">${siteName}</a> © ${new Date().getFullYear()}</p>
-                      </td></tr>
-                    </table>
-                  </td></tr>
-                </table>
-              </body>
-              </html>
-            `,
-          }),
+        const { GmailService } = await import('../services/gmail.service');
+        const gmailService = new GmailService(gmailConfig);
+        const html = buildConfirmationEmailTemplate({
+          email: data.email,
+          siteUrl,
+          siteName,
+          categories: data.categories,
+          unsubscribeUrl,
+        });
+        await gmailService.sendEmail({
+          to: data.email,
+          subject: `✅ ${siteName} Aboneliğiniz Onaylandı`,
+          html,
+          fromName: siteName,
+          replyTo: gmailConfig.fromEmail,
         });
       } catch (err) {
         console.error('Confirmation email error:', err);

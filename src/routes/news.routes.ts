@@ -8,6 +8,7 @@ import { ScraperService } from '../services/scraper.service';
 import { SubscriptionService } from '../services/subscription.service';
 import type { Bindings } from '../types';
 import { error, paginated, success } from '../utils/response';
+import { buildNewsEmailTemplate } from '../utils/email-templates';
 import { createNewsSchema, previewNewsSchema, updateNewsSchema } from '../utils/validation';
 
 const newsRoutes = new Hono<{ Bindings: Bindings }>();
@@ -159,10 +160,10 @@ async function triggerNotifications(
   title: string,
   slug: string,
   excerpt: string | null,
+  imageUrl: string | null,
   categorySlug: string,
   siteUrl: string,
-  relayUrl: string,
-  relaySecret: string,
+  gmailConfig: { clientId: string; clientSecret: string; refreshToken: string; fromEmail: string },
   vapidPublicKey: string,
   vapidPrivateKey: string
 ) {
@@ -178,20 +179,21 @@ async function triggerNotifications(
 
   const emailFromNameRow = await db.prepare("SELECT value FROM settings WHERE key = 'email_from_name'")
     .first<{ value: string }>();
-  const emailFromAddrRow = await db.prepare("SELECT value FROM settings WHERE key = 'email_from_address'")
-    .first<{ value: string }>();
-  const emailReplyToRow = await db.prepare("SELECT value FROM settings WHERE key = 'email_reply_to'")
-    .first<{ value: string }>();
   const fromName = emailFromNameRow?.value || 'NewsHaberGlobal';
-  const fromAddress = emailFromAddrRow?.value || 'noreply@newshaberglobal.com';
-  const replyTo = emailReplyToRow?.value || '';
 
   const subService = new SubscriptionService(db);
   const subs = await subService.getActiveSubscriptionsByCategory(categorySlug);
 
+  // Gmail service setup
+  let gmailService: import('../services/gmail.service').GmailService | null = null;
+  if (emailEnabled && gmailConfig.clientId && gmailConfig.refreshToken) {
+    const { GmailService } = await import('../services/gmail.service');
+    gmailService = new GmailService(gmailConfig);
+  }
+
   for (const sub of subs) {
     if (sub.type === 'email' && sub.email) {
-      if (!emailEnabled) continue;
+      if (!emailEnabled || !gmailService) continue;
       const notifResult = await db
         .prepare(`
         INSERT INTO notification_log (subscription_id, type, title, body, url, news_id, status)
@@ -208,25 +210,26 @@ async function triggerNotifications(
 
       const notifId = notifResult.meta?.last_row_id;
 
-      if (relayUrl && notifId) {
+      if (notifId) {
         try {
           const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(sub.email)}`;
-          const res = await fetch(relayUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              secret: relaySecret,
-              to: sub.email,
-              from: fromAddress,
-              fromName,
-              replyTo: replyTo || undefined,
-              subject: `📰 ${title}`,
-              html: `<h2>${title}</h2><p>${excerpt || ''}</p><a href="${siteUrl}/news/${slug}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Haberi Oku →</a>`,
-              unsubscribeUrl,
-            }),
+          const html = buildNewsEmailTemplate({
+            title,
+            excerpt,
+            imageUrl,
+            articleUrl: `${siteUrl}/news/${slug}`,
+            siteUrl,
+            unsubscribeUrl,
+          });
+          const result = await gmailService.sendEmail({
+            to: sub.email,
+            subject: `📰 ${title}`,
+            html,
+            fromName,
+            replyTo: gmailConfig.fromEmail,
           });
 
-          if (res.ok) {
+          if (result.success) {
             await db
               .prepare(
                 `UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`
@@ -234,12 +237,11 @@ async function triggerNotifications(
               .bind(notifId)
               .run();
           } else {
-            const errText = await res.text();
             await db
               .prepare(
                 `UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`
               )
-              .bind(errText, notifId)
+              .bind(result.error || 'Unknown error', notifId)
               .run();
           }
         } catch (err: unknown) {
@@ -372,8 +374,12 @@ newsRoutes.post('/', authMiddleware, async (c) => {
 
   if (parsed.data.status === 'published') {
     const siteUrl = 'https://newshaberglobal.vercel.app';
-    const relayUrl = c.env.SMTP_RELAY_URL || '';
-    const relaySecret = c.env.SMTP_RELAY_SECRET || '';
+    const gmailConfig = {
+      clientId: c.env.GMAIL_CLIENT_ID || '',
+      clientSecret: c.env.GMAIL_CLIENT_SECRET || '',
+      refreshToken: c.env.GMAIL_REFRESH_TOKEN || '',
+      fromEmail: c.env.GMAIL_FROM_EMAIL || 'newshaberglobal@gmail.com',
+    };
 
     const cat = await c.env.DB.prepare('SELECT slug FROM categories WHERE id = ?')
       .bind(news.categoryId)
@@ -386,10 +392,10 @@ newsRoutes.post('/', authMiddleware, async (c) => {
       news.title,
       news.slug,
       news.excerpt,
+      news.imageUrl,
       categorySlug,
       siteUrl,
-      relayUrl,
-      relaySecret,
+      gmailConfig,
       c.env.VAPID_PUBLIC_KEY,
       c.env.VAPID_PRIVATE_KEY
     );
@@ -432,8 +438,12 @@ newsRoutes.put('/:id', authMiddleware, async (c) => {
 
   if (isPublishingNow) {
     const siteUrl = 'https://newshaberglobal.vercel.app';
-    const relayUrl = c.env.SMTP_RELAY_URL || '';
-    const relaySecret = c.env.SMTP_RELAY_SECRET || '';
+    const gmailConfig = {
+      clientId: c.env.GMAIL_CLIENT_ID || '',
+      clientSecret: c.env.GMAIL_CLIENT_SECRET || '',
+      refreshToken: c.env.GMAIL_REFRESH_TOKEN || '',
+      fromEmail: c.env.GMAIL_FROM_EMAIL || 'newshaberglobal@gmail.com',
+    };
 
     const cat = await c.env.DB.prepare('SELECT slug FROM categories WHERE id = ?')
       .bind(news.categoryId)
@@ -446,10 +456,10 @@ newsRoutes.put('/:id', authMiddleware, async (c) => {
       news.title,
       news.slug,
       news.excerpt,
+      news.imageUrl,
       categorySlug,
       siteUrl,
-      relayUrl,
-      relaySecret,
+      gmailConfig,
       c.env.VAPID_PUBLIC_KEY,
       c.env.VAPID_PRIVATE_KEY
     );

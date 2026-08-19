@@ -165,6 +165,10 @@ export interface Bindings {
   VAPID_SUBJECT?: string;
   SMTP_RELAY_URL?: string;
   SMTP_RELAY_SECRET?: string;
+  GMAIL_CLIENT_ID?: string;
+  GMAIL_CLIENT_SECRET?: string;
+  GMAIL_REFRESH_TOKEN?: string;
+  GMAIL_FROM_EMAIL?: string;
   CRON_SECRET?: string;
 }
 

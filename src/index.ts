@@ -8,6 +8,7 @@ import authRoutes from './routes/auth.routes';
 import categoryRoutes from './routes/category.routes';
 import commentRoutes from './routes/comment.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import { buildNewsEmailTemplate } from './utils/email-templates';
 import newsRoutes from './routes/news.routes';
 import searchRoutes from './routes/search.routes';
 import settingsRoutes from './routes/settings.routes';
@@ -112,14 +113,18 @@ app.get('/api/admin/trigger-cron', async (c) => {
 
   const db = c.env.DB;
   const siteUrl = 'https://newshaberglobal.vercel.app';
-  const relayUrl = c.env.SMTP_RELAY_URL || '';
-  const relaySecret = c.env.SMTP_RELAY_SECRET || '';
+  const gmailConfig = {
+    clientId: c.env.GMAIL_CLIENT_ID || '',
+    clientSecret: c.env.GMAIL_CLIENT_SECRET || '',
+    refreshToken: c.env.GMAIL_REFRESH_TOKEN || '',
+    fromEmail: c.env.GMAIL_FROM_EMAIL || 'newshaberglobal@gmail.com',
+  };
   const results: string[] = [];
 
   // 1. Find recently published news
   const recentlyPublished = await db
     .prepare(`
-    SELECT n.id, n.title, n.slug, n.excerpt, n.category_id, n.published_at, c.slug as category_slug
+    SELECT n.id, n.title, n.slug, n.excerpt, n.image_url, n.category_id, n.published_at, c.slug as category_slug
     FROM news n
     LEFT JOIN categories c ON n.category_id = c.id
     WHERE n.status = 'published'
@@ -162,22 +167,29 @@ app.get('/api/admin/trigger-cron', async (c) => {
         const lastId = notifResult.meta?.last_row_id;
         results.push(`  Inserted notif #${lastId} for ${sub.email}, news_id=${news.id}`);
 
-        if (relayUrl) {
+        if (gmailConfig.clientId && gmailConfig.refreshToken) {
           try {
+            const { GmailService } = await import('./services/gmail.service');
+            const { buildNewsEmailTemplate } = await import('./utils/email-templates');
+            const gmailService = new GmailService(gmailConfig);
             const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(sub.email)}`;
-            const res = await fetch(relayUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                secret: relaySecret,
-                to: sub.email,
-                subject: `📰 ${news.title}`,
-                html: `<h2>${news.title}</h2><p>${news.excerpt || ''}</p><a href="${siteUrl}/news/${news.slug}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Haberi Oku →</a>`,
-                unsubscribeUrl,
-              }),
+            const html = buildNewsEmailTemplate({
+              title: news.title,
+              excerpt: news.excerpt || undefined,
+              imageUrl: news.image_url,
+              articleUrl: `${siteUrl}/news/${news.slug}`,
+              siteUrl,
+              unsubscribeUrl,
+            });
+            const result = await gmailService.sendEmail({
+              to: sub.email,
+              subject: `📰 ${news.title}`,
+              html,
+              fromName: 'NewsHaberGlobal',
+              replyTo: gmailConfig.fromEmail,
             });
 
-            if (res.ok) {
+            if (result.success) {
               if (lastId)
                 await db
                   .prepare(
@@ -187,15 +199,14 @@ app.get('/api/admin/trigger-cron', async (c) => {
                   .run();
               results.push(`  ✅ Sent to ${sub.email}`);
             } else {
-              const errText = await res.text();
               if (lastId)
                 await db
                   .prepare(
                     `UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`
                   )
-                  .bind(errText, lastId)
+                  .bind(result.error || 'Unknown error', lastId)
                   .run();
-              results.push(`  ❌ Failed for ${sub.email}: ${errText}`);
+              results.push(`  ❌ Failed for ${sub.email}: ${result.error}`);
             }
           } catch (err: unknown) {
             if (lastId)
@@ -262,8 +273,14 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
   const emailEnabled = !emailEnabledRow || emailEnabledRow.value !== 'false';
 
   const siteUrl = 'https://newshaberglobal.vercel.app';
-  const relayUrl = env.SMTP_RELAY_URL || '';
-  const relaySecret = env.SMTP_RELAY_SECRET || '';
+
+  // Gmail OAuth config
+  const gmailConfig = {
+    clientId: env.GMAIL_CLIENT_ID || '',
+    clientSecret: env.GMAIL_CLIENT_SECRET || '',
+    refreshToken: env.GMAIL_REFRESH_TOKEN || '',
+    fromEmail: env.GMAIL_FROM_EMAIL || 'newshaberglobal@gmail.com',
+  };
 
   // 1. Process pending and failed email notifications (retry)
   if (!emailEnabled) {
@@ -282,40 +299,48 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
 
   const pendingEmailList = (pendingEmails.results || []) as unknown as NotificationLogWithEmail[];
 
-  for (const notif of pendingEmailList) {
-    try {
-      if (!relayUrl || !notif.email) continue;
-      const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(notif.email)}`;
-      const res = await fetch(relayUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          secret: relaySecret,
+  if (pendingEmailList.length > 0 && gmailConfig.clientId && gmailConfig.refreshToken) {
+    const { GmailService } = await import('./services/gmail.service');
+    const gmailService = new GmailService(gmailConfig);
+
+    for (const notif of pendingEmailList) {
+      try {
+        if (!notif.email) continue;
+        const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(notif.email)}`;
+        const html = buildNewsEmailTemplate({
+          title: notif.title,
+          excerpt: notif.body,
+          articleUrl: notif.url || siteUrl,
+          siteUrl,
+          unsubscribeUrl,
+        });
+        const result = await gmailService.sendEmail({
           to: notif.email,
           subject: notif.title,
-          html: `<h2>${notif.title}</h2><p>${notif.body || ''}</p><a href="${notif.url}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none">Haberi Oku →</a>`,
-          unsubscribeUrl,
-        }),
-      });
-      if (res.ok) {
-        await db
-          .prepare(
-            `UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`
-          )
-          .bind(notif.id)
-          .run();
-      } else {
-        const errText = await res.text();
+          html,
+          fromName: 'NewsHaberGlobal',
+          replyTo: 'newshaberglobal@gmail.com',
+        });
+
+        if (result.success) {
+          await db
+            .prepare(
+              `UPDATE notification_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?`
+            )
+            .bind(notif.id)
+            .run();
+        } else {
+          await db
+            .prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`)
+            .bind(result.error || 'Unknown error', notif.id)
+            .run();
+        }
+      } catch (err: unknown) {
         await db
           .prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`)
-          .bind(errText, notif.id)
+          .bind(String(err), notif.id)
           .run();
       }
-    } catch (err: unknown) {
-      await db
-        .prepare(`UPDATE notification_log SET status = 'failed', error_message = ? WHERE id = ?`)
-        .bind(String(err), notif.id)
-        .run();
     }
   }
   } // end emailEnabled else block
