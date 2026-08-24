@@ -1,0 +1,9 @@
+# Local development secrets — copy to .dev.vars and fill in
+# NEVER commit .dev.vars (it is gitignored)
+
+JWT_SECRET=your-random-secret-here
+VAPID_PUBLIC_KEY=your-vapid-public-key
+VAPID_PRIVATE_KEY=your-vapid-private-key
+
+# Optional: only needed for manual cron triggering
+CRON_SECRET=your-cron-secret
