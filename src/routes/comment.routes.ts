@@ -62,8 +62,9 @@ commentRoutes.post('/:newsId', async (c) => {
   }
 
   // Check if comments are enabled via settings
-  const settingsRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'comments_enabled'")
-    .first<{ value: string }>();
+  const settingsRow = await c.env.DB.prepare(
+    "SELECT value FROM settings WHERE key = 'comments_enabled'"
+  ).first<{ value: string }>();
   if (settingsRow && settingsRow.value === 'false') {
     return error('Yorumlar devre dışı', 403);
   }
@@ -76,8 +77,9 @@ commentRoutes.post('/:newsId', async (c) => {
   }
 
   // Check max length from settings
-  const maxLengthRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'comments_max_length'")
-    .first<{ value: string }>();
+  const maxLengthRow = await c.env.DB.prepare(
+    "SELECT value FROM settings WHERE key = 'comments_max_length'"
+  ).first<{ value: string }>();
   const maxLen = maxLengthRow ? Number.parseInt(maxLengthRow.value, 10) || 5000 : 5000;
 
   // Check if news exists and is published
@@ -117,8 +119,9 @@ commentRoutes.post('/:newsId', async (c) => {
   }
 
   // Check moderation setting
-  const moderationRow = await c.env.DB.prepare("SELECT value FROM settings WHERE key = 'comments_moderation'")
-    .first<{ value: string }>();
+  const moderationRow = await c.env.DB.prepare(
+    "SELECT value FROM settings WHERE key = 'comments_moderation'"
+  ).first<{ value: string }>();
   const moderationEnabled = !moderationRow || moderationRow.value !== 'false';
 
   const service = new CommentService(c.env.DB);
@@ -157,7 +160,24 @@ commentRoutes.get('/admin/all', authMiddleware, async (c) => {
   const service = new CommentService(c.env.DB);
   const { comments, total } = await service.getAllComments(page, limit, status, newsId);
 
-  return paginated(comments, total, page, limit);
+  // Map to camelCase for the frontend
+  const mapped = comments.map((c) => ({
+    id: c.id,
+    newsId: c.news_id,
+    parentId: c.parent_id,
+    authorName: c.author_name,
+    authorEmail: c.author_email,
+    content: c.content,
+    status: c.status,
+    ipAddress: c.ip_address,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+    replyCount: c.reply_count,
+    newsTitle: c.news_title,
+    newsSlug: c.news_slug,
+  }));
+
+  return paginated(mapped, total, page, limit);
 });
 
 // PUT /api/comments/admin/:id/status - Update comment status
