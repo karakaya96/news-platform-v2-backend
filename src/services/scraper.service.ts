@@ -329,11 +329,32 @@ export class ScraperService {
       if (url && !alreadyHas(url)) videos.push({ type: 'mp4', url, title: '' });
     }
 
-    // 5. data-video-url / video_file / videoUrl (Turkish news sites)
-    const dataVideoRegex = /(?:data-video-url|video_file|videoUrl|data-video-src|data-media-url|data-url)=["']([^"']+\.(?:mp4|webm|m3u8)[^"']*)["']/gi;
+    // 5. data-video-url / video_file / videoUrl / data-src (Turkish news sites, e.g. ensonhaber)
+    const dataVideoRegex = /(?:data-video-url|video_file|videoUrl|data-video-src|data-media-url|data-url|data-src|data-mp4|data-video)=["']([^"']+\.(?:mp4|webm|m3u8)[^"']*)["']/gi;
     while ((match = dataVideoRegex.exec(html)) !== null) {
       const url = this.resolveUrl(match[1]);
       if (url && !alreadyHas(url)) videos.push({ type: 'mp4', url, title: '' });
+    }
+
+    // 5b. twitter:player:stream meta tag (e.g. cnnturk)
+    const twStreamRegex = /<meta[^>]+name=["']twitter:player:stream["'][^>]+content=["']([^"']+\.(?:mp4|m3u8)[^"']*)["']/gi;
+    while ((match = twStreamRegex.exec(html)) !== null) {
+      // Upgrade to https to avoid mixed-content blocking on the live site
+      const url = this.resolveUrl(match[1].replace(/^http:\/\//i, 'https://'));
+      if (url && !alreadyHas(url)) videos.push({ type: 'mp4', url, title: '' });
+    }
+
+    // 5c. Generic fallback: any quoted http(s) URL ending in .mp4/.webm (catches JSON blobs)
+    if (videos.length === 0) {
+      const anyMp4Regex = /https?:\/\/[^"'\s<>]+?\.(?:mp4|webm)(?:\?[^"'\s<>]*)?/gi;
+      while ((match = anyMp4Regex.exec(html)) !== null) {
+        const url = this.resolveUrl(match[0]);
+        // Skip obvious ads/tracking
+        if (url && !alreadyHas(url) && !/ad[s]?[./]|banner|pixel/i.test(url)) {
+          videos.push({ type: 'mp4', url, title: '' });
+          if (videos.length >= 3) break;
+        }
+      }
     }
 
     // 6. JSON-LD VideoObject
