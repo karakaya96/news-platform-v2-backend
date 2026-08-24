@@ -10,6 +10,7 @@ import commentRoutes from './routes/comment.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import { buildNewsEmailTemplate } from './utils/email-templates';
 import newsRoutes from './routes/news.routes';
+import rssRoutes from './routes/rss.routes';
 import searchRoutes from './routes/search.routes';
 import settingsRoutes from './routes/settings.routes';
 import subscriptionRoutes from './routes/subscription.routes';
@@ -90,6 +91,7 @@ app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/comments', commentRoutes);
 app.route('/api/subscribe', subscriptionRoutes);
 app.route('/api/search', searchRoutes);
+app.route('/api/rss', rssRoutes);
 app.route('/api/settings', settingsRoutes);
 app.route('/api/users', userRoutes);
 app.route('/api/user/media', userMediaRoutes);
@@ -252,12 +254,22 @@ app.notFound((_c) => {
   return Response.json({ success: false, error: 'Not found' }, { status: 404 });
 });
 
-export default app;
-
 // Cron scheduled handler - runs every 5 minutes
 // Primary job: process pending/failed email + browser push notifications
 export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown) {
   const db = env.DB;
+
+  // 0. Daily D1 → R2 backup (runs once per day, checked via marker object)
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const existing = await env.R2.head(`backups/${today}/news-platform-db.sql`);
+    if (!existing) {
+      const { runDailyBackup } = await import('./services/backup.service');
+      await runDailyBackup(env);
+    }
+  } catch (err) {
+    console.error('Backup step failed (non-fatal):', err);
+  }
 
   // Check if notifications are enabled
   const notifEnabledRow = await db.prepare("SELECT value FROM settings WHERE key = 'notifications_enabled'")
@@ -283,6 +295,7 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
   };
 
   // 1. Process pending and failed email notifications (retry)
+  let processedEmails = 0;
   if (!emailEnabled) {
     // Mark all pending emails as skipped
     await db.prepare("UPDATE notification_log SET status = 'failed', error_message = 'Email notifications disabled' WHERE status IN ('pending', 'failed') AND type = 'email'")
@@ -304,6 +317,7 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
     const gmailService = new GmailService(gmailConfig);
 
     for (const notif of pendingEmailList) {
+      processedEmails++;
       try {
         if (!notif.email) continue;
         const unsubscribeUrl = `${siteUrl}/subscribe?action=unsubscribe&email=${encodeURIComponent(notif.email)}`;
@@ -433,6 +447,11 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
   }
 
   console.log(
-    `Cron: ${pendingEmailList.length} emails, ${pendingBrowserList.length} browser pushes processed`
+    `Cron: ${processedEmails} emails, ${pendingBrowserList.length} browser pushes processed`
   );
 }
+
+export default {
+  fetch: app.fetch,
+  scheduled,
+};
