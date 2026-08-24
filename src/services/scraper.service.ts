@@ -354,21 +354,24 @@ export class ScraperService {
   }
 
   private generateVideoEmbed(video: { type: string; url: string; title: string }): string {
-    const safeUrl = this.escapeHtmlAttr(video.url);
+    // Emit the editor-native format (div[data-video-embed]) so Tiptap preserves
+    // videos when fetched content is loaded into the rich text editor.
+    // Provider types store only the video ID; the editor builds the embed URL.
+    let src = video.url;
+    if (video.type === 'youtube') {
+      const m = src.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/);
+      src = m ? m[1] : src;
+    } else if (video.type === 'vimeo') {
+      src = src.split('/').pop()?.split('?')[0] || src;
+    } else if (video.type === 'dailymotion') {
+      src = src.split('/').pop()?.split('?')[0] || src;
+    }
+
+    const safeUrl = this.escapeHtmlAttr(src);
     const safeTitle = this.escapeHtmlAttr(video.title);
+    const type = this.escapeHtmlAttr(video.type);
 
-    if (video.type === 'mp4') {
-      return `<div class="video-embed my-4" style="border-radius:12px;overflow:hidden;"><video controls preload="metadata" style="width:100%;border-radius:12px;"><source src="${safeUrl}" /></video></div>`;
-    }
-
-    // iframe-based (youtube, vimeo, dailymotion)
-    let embedUrl = safeUrl;
-    if (video.type === 'youtube' && safeUrl.includes('watch?v=')) {
-      const videoId = safeUrl.split('v=')[1]?.split('&')[0] || '';
-      embedUrl = `https://www.youtube.com/embed/${videoId}`;
-    }
-
-    return `<div class="video-embed my-4" style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;background:#0f172a;"><iframe src="${embedUrl}" title="${safeTitle || 'Video'}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>`;
+    return `<div data-video-embed="" data-video-src="${safeUrl}" data-video-type="${type}" data-video-title="${safeTitle}" class="video-embed-wrapper"></div>`;
   }
 
   // ── Content extraction (preserving HTML) ──
