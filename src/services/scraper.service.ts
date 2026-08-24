@@ -80,7 +80,12 @@ export class ScraperService {
 
       // Extract content images and videos
       const contentImages = this.extractImages(html);
-      const videos = this.detectVideos(html);
+      const { videos, pendingEmbedUrls } = this.detectVideos(html);
+
+      // Resolve internal embed pages (e.g. haberturk /video/embed/ID) to direct media
+      if (pendingEmbedUrls.length > 0) {
+        await this.resolvePendingEmbeds(pendingEmbedUrls, videos);
+      }
 
       // Extract content (preserving HTML)
       let content = this.extractContent(html);
@@ -281,8 +286,12 @@ export class ScraperService {
 
   // ── Video detection ──
 
-  private detectVideos(html: string): Array<{ type: string; url: string; title: string }> {
+  private detectVideos(html: string): {
+    videos: Array<{ type: string; url: string; title: string }>;
+    pendingEmbedUrls: string[];
+  } {
     const videos: Array<{ type: string; url: string; title: string }> = [];
+    const pendingEmbedUrls: string[] = [];
     const alreadyHas = (url: string) => videos.some(v => v.url === url);
     const normalize = (u: string) => u.startsWith('//') ? 'https:' + u : u;
 
@@ -344,34 +353,100 @@ export class ScraperService {
       if (url && !alreadyHas(url)) videos.push({ type: 'mp4', url, title: '' });
     }
 
-    // 5c. Generic fallback: any quoted http(s) URL ending in .mp4/.webm (catches JSON blobs)
+    // 5c. Generic fallback: any quoted http(s) URL ending in .mp4 (catches JSON blobs)
     if (videos.length === 0) {
-      const anyMp4Regex = /https?:\/\/[^"'\s<>]+?\.(?:mp4|webm)(?:\?[^"'\s<>]*)?/gi;
+      const anyMp4Regex = /https?:\/\/[^"'\s<>]+?\.(?:mp4|m3u8)(?:\?[^"'\s<>]*)?/gi;
       while ((match = anyMp4Regex.exec(html)) !== null) {
         const url = this.resolveUrl(match[0]);
-        // Skip obvious ads/tracking
-        if (url && !alreadyHas(url) && !/ad[s]?[./]|banner|pixel/i.test(url)) {
+        // Skip obvious ads/tracking and non-media files
+        if (url && !alreadyHas(url) && !/ad[s]?[./]|banner|pixel|manifest/i.test(url)) {
           videos.push({ type: 'mp4', url, title: '' });
           if (videos.length >= 3) break;
         }
       }
     }
 
-    // 6. JSON-LD VideoObject
+    // 6. JSON-LD VideoObject — direct contentUrl, or resolve internal embed pages
     const jsonLdRegex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>(.*?)<\/script>/gs;
     while ((match = jsonLdRegex.exec(html)) !== null) {
       try {
         const data = JSON.parse(match[1]);
         if (data?.['@type'] === 'VideoObject') {
-          const url = data.contentUrl || data.embedUrl || '';
-          if (url && !alreadyHas(url)) {
-            videos.push({ type: 'mp4', url, title: data.name || '' });
+          const contentUrl: string = data.contentUrl || '';
+          const embedUrl: string = data.embedUrl || '';
+          const title = data.name || '';
+
+          if (contentUrl && /\.(mp4|webm|m3u8)/i.test(contentUrl)) {
+            if (!alreadyHas(contentUrl)) videos.push({ type: 'mp4', url: contentUrl, title });
+            continue;
+          }
+
+          // Internal embed page (e.g. haberturk.com/video/embed/ID): queue for deep resolution
+          if (embedUrl && !embedUrl.match(/youtube|vimeo|dailymotion/i) && this.baseUrl) {
+            try {
+              const embedOrigin = new URL(embedUrl).host;
+              const articleOrigin = new URL(this.baseUrl).host;
+              // Only follow same-site embeds to avoid pulling random third-party players
+              if (embedOrigin.endsWith(articleOrigin.split('.').slice(-2).join('.'))) {
+                pendingEmbedUrls.push(embedUrl);
+              }
+            } catch { continue; }
           }
         }
       } catch { continue; }
     }
 
-    return videos.slice(0, 3); // max 3 videos
+    return { videos: videos.slice(0, 3), pendingEmbedUrls }; // max 3 videos
+  }
+
+  /**
+   * Universal fallback: fetches internal video-embed pages found on the article
+   * and extracts the direct media URL from them. This handles news sites that
+   * host their player on a separate /video/embed/ page (haberturk, milliyet,
+   * takvim, etc.) without needing per-site rules.
+   */
+  async resolvePendingEmbeds(
+    pendingEmbedUrls: string[],
+    videos: Array<{ type: string; url: string; title: string }>
+  ): Promise<void> {
+    const alreadyHas = (url: string) => videos.some(v => v.url === url);
+
+    for (const embedUrl of pendingEmbedUrls.slice(0, 2)) {
+      try {
+        const res = await fetch(embedUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36',
+            'Referer': embedUrl,
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!res.ok) continue;
+        const embedHtml = await res.text();
+
+        // Direct media URLs in the embed page
+        const mediaRegex = /https?:\/\/[^"'\s<>\\]+?\.(?:mp4|m3u8)(?:\?[^"'\s<>]*)?/gi;
+        let m: RegExpExecArray | null;
+        while ((m = mediaRegex.exec(embedHtml)) !== null) {
+          const url = m[0];
+          // Skip ads/tracking AND non-media files (manifests, icons etc.)
+          if (!alreadyHas(url) && !/ads?[./]|banner|pixel|preview|thumb|manifest/i.test(url)) {
+            videos.push({ type: 'mp4', url, title: '' });
+            break; // one good video from the embed is enough
+          }
+        }
+        if (videos.length > 0) break;
+
+        // JSON config blobs with "src": "...mp4"
+        const srcJsonRegex = /"(?:src|url|file|contentUrl)"\s*:\s*"(https?:[^"]+?\.(?:mp4|webm|m3u8)[^"]*)"/gi;
+        while ((m = srcJsonRegex.exec(embedHtml)) !== null) {
+          const url = m[1].replace(/\\\//g, '/');
+          if (!alreadyHas(url)) {
+            videos.push({ type: 'mp4', url, title: '' });
+            break;
+          }
+        }
+      } catch { continue; }
+    }
   }
 
   private generateVideoEmbed(video: { type: string; url: string; title: string }): string {
