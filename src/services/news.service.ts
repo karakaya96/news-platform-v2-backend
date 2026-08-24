@@ -491,6 +491,11 @@ export class NewsService {
       ftsQuery = ftsQuery.replace(/['"]/g, '');
     }
 
+    // Queries shorter than 2 chars would match nearly every article — ignore them
+    if (ftsQuery && ftsQuery.length < 2) {
+      ftsQuery = '';
+    }
+
     if (ftsQuery) {
       // Support multi-word queries: every word must appear somewhere (AND semantics)
       const words = ftsQuery.split(/\s+/).filter(Boolean);
@@ -533,7 +538,17 @@ export class NewsService {
       let orderBy: import('drizzle-orm').SQL<unknown>[];
       switch (sortBy) {
         case 'views':
-          orderBy = [desc(news.viewCount)];
+          orderBy = [desc(news.viewCount), desc(news.publishedAt)];
+          break;
+        case 'relevance':
+          if (ftsQuery) {
+            // Weighted relevance: title hit ranks highest, then excerpt, then content-only
+            const titleHit = sql`CASE WHEN instr(lower(${news.title}), lower(${ftsQuery})) > 0 THEN 3 ELSE 0 END`;
+            const excerptHit = sql`CASE WHEN instr(lower(${news.excerpt}), lower(${ftsQuery})) > 0 THEN 2 ELSE 0 END`;
+            orderBy = [desc(sql`${titleHit} + ${excerptHit}`), desc(news.publishedAt)];
+          } else {
+            orderBy = [desc(news.publishedAt)];
+          }
           break;
         default:
           orderBy = [desc(news.publishedAt)];
