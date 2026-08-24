@@ -11,10 +11,10 @@ const commentRoutes = new Hono<{ Bindings: Bindings }>();
 
 // Validation schemas
 const createCommentSchema = z.object({
-  author_name: z.string().min(1, 'İsim gerekli').max(100),
-  author_email: z.string().email('Geçerli bir e-posta adresi girin').max(255),
+  authorName: z.string().min(1, 'İsim gerekli').max(100),
+  authorEmail: z.string().email('Geçerli bir e-posta adresi girin').max(255),
   content: z.string().min(1, 'Yorum içeriği gerekli').max(5000),
-  parent_id: z.number().int().positive().optional().nullable(),
+  parentId: z.number().int().positive().optional().nullable(),
 });
 
 const updateStatusSchema = z.object({
@@ -90,11 +90,11 @@ commentRoutes.post('/:newsId', async (c) => {
   }
 
   // If parent_id is set, verify it exists, is approved, and belongs to same news
-  if (parsed.data.parent_id) {
+  if (parsed.data.parentId) {
     const parent = await c.env.DB.prepare(
       "SELECT id FROM comments WHERE id = ? AND news_id = ? AND status = 'approved'"
     )
-      .bind(parsed.data.parent_id, newsId)
+      .bind(parsed.data.parentId, newsId)
       .first();
 
     if (!parent) {
@@ -102,8 +102,8 @@ commentRoutes.post('/:newsId', async (c) => {
     }
   }
 
-  const sanitizedName = sanitizeText(parsed.data.author_name, 100);
-  const sanitizedEmail = sanitizeEmail(parsed.data.author_email);
+  const sanitizedName = sanitizeText(parsed.data.authorName, 100);
+  const sanitizedEmail = sanitizeEmail(parsed.data.authorEmail);
   const sanitizedContent = sanitizeText(parsed.data.content, maxLen);
 
   if (!sanitizedName) {
@@ -124,7 +124,7 @@ commentRoutes.post('/:newsId', async (c) => {
   const service = new CommentService(c.env.DB);
   const comment = await service.createComment({
     news_id: newsId,
-    parent_id: parsed.data.parent_id || null,
+    parent_id: parsed.data.parentId || null,
     author_name: sanitizedName,
     author_email: sanitizedEmail,
     content: sanitizedContent,
