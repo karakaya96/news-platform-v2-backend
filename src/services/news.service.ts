@@ -114,7 +114,7 @@ export class NewsService {
       tagsMap.set(t.newsId, arr);
     }
 
-// Combine all data
+    // Combine all data
     return baseNews.map((n) => {
       const author = authorMap.get(n.authorId);
       return {
@@ -429,24 +429,21 @@ export class NewsService {
   ): Promise<{ news: NewsWithRelations[]; total: number }> {
     const safeLimit = Math.min(Math.max(limit, 1), 100);
     const safeOffset = Math.max((page - 1) * safeLimit, 0);
-    const searchTerm = `%${query}%`;
+    const term = query.trim();
+
+    const searchCondition = or(
+      sql`instr(lower(${news.title}), lower(${term})) > 0`,
+      sql`instr(lower(${news.excerpt}), lower(${term})) > 0`
+    );
 
     const countResult = await this.db
       .select({ total: count() })
       .from(news)
-      .where(
-        and(
-          eq(news.status, 'published'),
-          or(like(news.title, searchTerm), like(news.excerpt, searchTerm))
-        )
-      );
+      .where(and(eq(news.status, 'published'), searchCondition));
     const total = countResult[0]?.total || 0;
 
     const newsResults = await this.getNewsWithRelations(
-      and(
-        eq(news.status, 'published'),
-        or(like(news.title, searchTerm), like(news.excerpt, searchTerm))
-      ),
+      and(eq(news.status, 'published'), searchCondition),
       [desc(news.publishedAt)],
       safeLimit,
       safeOffset
@@ -479,11 +476,27 @@ export class NewsService {
     const safeLimit = Math.min(Math.max(limit, 1), 100);
     const safeOffset = Math.max((page - 1) * safeLimit, 0);
 
+    // Case-insensitive search helper (SQLite LIKE is only ASCII case-insensitive)
+    const searchCondition = (term: string) =>
+      or(
+        sql`instr(lower(${news.title}), lower(${term})) > 0`,
+        sql`instr(lower(${news.excerpt}), lower(${term})) > 0`,
+        sql`instr(lower(${news.content}), lower(${term})) > 0`
+      );
+
     const conditions = [eq(news.status, 'published')];
 
     let ftsQuery = query.trim();
     if (ftsQuery) {
       ftsQuery = ftsQuery.replace(/['"]/g, '');
+    }
+
+    if (ftsQuery) {
+      // Support multi-word queries: every word must appear somewhere (AND semantics)
+      const words = ftsQuery.split(/\s+/).filter(Boolean);
+      for (const word of words) {
+        conditions.push(searchCondition(word));
+      }
     }
 
     if (category) {
@@ -508,17 +521,7 @@ export class NewsService {
     let newsResults: NewsWithRelations[] = [];
     let total = 0;
 
-    if (ftsQuery) {
-      // Fallback to LIKE search since Drizzle doesn't have FTS5 support
-      const searchTerm = `%${ftsQuery}%`;
-      conditions.push(
-        or(
-          like(news.title, searchTerm),
-          like(news.excerpt, searchTerm),
-          like(news.content, searchTerm)
-        )
-      );
-
+    {
       const countResult = await this.db
         .select({ total: count() })
         .from(news)
@@ -532,29 +535,9 @@ export class NewsService {
         case 'views':
           orderBy = [desc(news.viewCount)];
           break;
-        case 'date':
-          orderBy = [desc(news.publishedAt)];
-          break;
         default:
           orderBy = [desc(news.publishedAt)];
           break;
-      }
-
-      newsResults = await this.getNewsWithRelations(whereClause, orderBy, safeLimit, safeOffset);
-    } else {
-      const countResult = await this.db
-        .select({ total: count() })
-        .from(news)
-        .leftJoin(categories, eq(news.categoryId, categories.id))
-        .leftJoin(users, eq(news.authorId, users.id))
-        .where(whereClause);
-      total = countResult[0]?.total || 0;
-
-      let orderBy: import('drizzle-orm').SQL<unknown>[];
-      if (sortBy === 'views') {
-        orderBy = [desc(news.viewCount)];
-      } else {
-        orderBy = [desc(news.publishedAt)];
       }
 
       newsResults = await this.getNewsWithRelations(whereClause, orderBy, safeLimit, safeOffset);
@@ -570,8 +553,12 @@ export class NewsService {
   ): Promise<{ id: number; title: string; slug: string }[]> {
     if (!query || query.trim().length < 2) return [];
     const safeLimit = Math.min(Math.max(limit, 1), 20);
-    const safeQuery = query.trim().replace(/['"]/g, '');
-    const ftsQuery = `%${safeQuery}%`;
+    const term = query.trim().replace(/['"]/g, '');
+
+    const searchCondition = or(
+      sql`instr(lower(${news.title}), lower(${term})) > 0`,
+      sql`instr(lower(${news.excerpt}), lower(${term})) > 0`
+    );
 
     const result = await this.db
       .select({
@@ -580,12 +567,7 @@ export class NewsService {
         slug: news.slug,
       })
       .from(news)
-      .where(
-        and(
-          eq(news.status, 'published'),
-          or(like(news.title, ftsQuery), like(news.excerpt, ftsQuery))
-        )
-      )
+      .where(and(eq(news.status, 'published'), searchCondition))
       .orderBy(desc(news.publishedAt))
       .limit(safeLimit);
 
