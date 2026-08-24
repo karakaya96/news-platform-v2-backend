@@ -50,7 +50,20 @@ commentRoutes.get('/:newsId', async (c) => {
   }
 
   const comments = await service.getCommentsWithReplies(newsId);
-  return success(comments);
+
+  // Map to camelCase for the frontend (public fields only)
+  const mapped = comments.map((c) => ({
+    id: c.id,
+    newsId: c.news_id,
+    parentId: c.parent_id,
+    authorName: c.author_name,
+    content: c.content,
+    status: c.status,
+    createdAt: c.created_at,
+    replyCount: c.reply_count,
+  }));
+
+  return success(mapped);
 });
 
 // POST /api/comments/:newsId - Create a new comment (public)
