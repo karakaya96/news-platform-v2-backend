@@ -36,6 +36,7 @@ export function buildNewsEmailTemplate(params: EmailTemplateParams): string {
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: 'Europe/Istanbul',
       })
     : new Date().toLocaleDateString('tr-TR', {
         day: 'numeric',
@@ -43,6 +44,7 @@ export function buildNewsEmailTemplate(params: EmailTemplateParams): string {
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: 'Europe/Istanbul',
       });
 
   const categorySection = category
