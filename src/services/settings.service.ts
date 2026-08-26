@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS: Record<string, { value: string; category: string }> = {
   'site_logo': { value: '', category: 'general' },
   'site_favicon': { value: '', category: 'general' },
   'site_language': { value: 'tr', category: 'general' },
+  'site_timezone': { value: 'Europe/Istanbul', category: 'general' },
 
   // SEO
   'seo_title': { value: 'News Platform - Gündem, Teknoloji, Ekonomi', category: 'seo' },

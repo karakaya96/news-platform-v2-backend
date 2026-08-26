@@ -10,6 +10,7 @@ interface EmailTemplateParams {
   type?: 'news' | 'welcome' | 'unsubscribe';
   publishedAt?: string | null;
   authorName?: string | null;
+  timezone?: string;
 }
 
 export function buildNewsEmailTemplate(params: EmailTemplateParams): string {
@@ -25,6 +26,7 @@ export function buildNewsEmailTemplate(params: EmailTemplateParams): string {
     type = 'news',
     publishedAt,
     authorName,
+    timezone = 'Europe/Istanbul',
   } = params;
 
   const categoryName = category || 'Gündem';
@@ -36,7 +38,7 @@ export function buildNewsEmailTemplate(params: EmailTemplateParams): string {
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        timeZone: 'Europe/Istanbul',
+        timeZone: timezone,
       })
     : new Date().toLocaleDateString('tr-TR', {
         day: 'numeric',
@@ -44,7 +46,7 @@ export function buildNewsEmailTemplate(params: EmailTemplateParams): string {
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        timeZone: 'Europe/Istanbul',
+        timeZone: timezone,
       });
 
   const categorySection = category

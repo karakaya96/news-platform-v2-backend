@@ -318,6 +318,10 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
     const { GmailService } = await import('./services/gmail.service');
     const gmailService = new GmailService(gmailConfig);
 
+    const timezoneRow = await db.prepare("SELECT value FROM settings WHERE key = 'site_timezone'")
+      .first<{ value: string }>();
+    const timezone = timezoneRow?.value || 'Europe/Istanbul';
+
     for (const notif of pendingEmailList) {
       processedEmails++;
       try {
@@ -331,6 +335,7 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
           unsubscribeUrl,
           publishedAt: notif.published_at,
           authorName: notif.author_name,
+          timezone,
         });
         const result = await gmailService.sendEmail({
           to: notif.email,

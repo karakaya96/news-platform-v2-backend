@@ -183,6 +183,10 @@ async function triggerNotifications(
     .first<{ value: string }>();
   const fromName = emailFromNameRow?.value || 'NewsHaberGlobal';
 
+  const timezoneRow = await db.prepare("SELECT value FROM settings WHERE key = 'site_timezone'")
+    .first<{ value: string }>();
+  const timezone = timezoneRow?.value || 'Europe/Istanbul';
+
   const subService = new SubscriptionService(db);
   const subs = await subService.getActiveSubscriptionsByCategory(categorySlug);
 
@@ -225,6 +229,7 @@ async function triggerNotifications(
             category: categorySlug,
             publishedAt,
             authorName,
+            timezone,
           });
           const result = await gmailService.sendEmail({
             to: sub.email,
