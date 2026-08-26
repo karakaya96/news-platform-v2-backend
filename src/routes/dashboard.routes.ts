@@ -26,10 +26,10 @@ dashboardRoutes.get('/stats', authMiddleware, async (c) => {
     .prepare('SELECT COUNT(*) as count FROM categories')
     .first<{ count: number }>();
 
-  const recentNews = await db
+  const recentNewsResult = await db
     .prepare(`
       SELECT n.id, n.title, n.slug, n.status, n.view_count, n.image_url, n.published_at, n.created_at,
-        c.name as category_name, c.color as category_color,
+        c.name as category_name, c.slug as category_slug, c.color as category_color,
         u.name as author_name
       FROM news n
       LEFT JOIN categories c ON n.category_id = c.id
@@ -39,7 +39,23 @@ dashboardRoutes.get('/stats', authMiddleware, async (c) => {
     `)
     .all();
 
-  const categoryDistribution = await db
+  // Map snake_case to camelCase for frontend
+  const recentNews = (recentNewsResult.results || []).map((row: Record<string, unknown>) => ({
+    id: row.id,
+    title: row.title,
+    slug: row.slug,
+    status: row.status,
+    viewCount: row.view_count,
+    imageUrl: row.image_url,
+    publishedAt: row.published_at,
+    createdAt: row.created_at,
+    categoryName: row.category_name,
+    categorySlug: row.category_slug,
+    categoryColor: row.category_color,
+    authorName: row.author_name,
+  }));
+
+  const categoryDistributionResult = await db
     .prepare(`
       SELECT c.id, c.name, c.slug, c.color, COUNT(n.id) as article_count
       FROM categories c
@@ -48,6 +64,15 @@ dashboardRoutes.get('/stats', authMiddleware, async (c) => {
       ORDER BY article_count DESC
     `)
     .all();
+
+  // Map snake_case to camelCase for frontend
+  const categoryDistribution = (categoryDistributionResult.results || []).map((row: Record<string, unknown>) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    color: row.color,
+    articleCount: row.article_count,
+  }));
 
   const publishedCount = await db
     .prepare("SELECT COUNT(*) as count FROM news WHERE status = 'published'")
@@ -88,8 +113,8 @@ dashboardRoutes.get('/stats', authMiddleware, async (c) => {
     activeSubscriptions: activeSubscriptions?.count || 0,
     browserSubscriptions: browserSubscriptions?.count || 0,
     emailSubscriptions: emailSubscriptions?.count || 0,
-    recentNews: recentNews.results || [],
-    categoryDistribution: categoryDistribution.results || [],
+    recentNews,
+    categoryDistribution,
   });
 });
 
