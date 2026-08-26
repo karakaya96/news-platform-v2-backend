@@ -80,5 +80,8 @@ export async function verifyPassword(password: string, storedHash: string): Prom
   const computedHex = Array.from(hashArray)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
-  return computedHex === hashHex;
+  // Timing-safe comparison to prevent timing attacks
+  const a = new TextEncoder().encode(computedHex);
+  const b = new TextEncoder().encode(hashHex);
+  return crypto.subtle.timingSafeEqual(a, b);
 }

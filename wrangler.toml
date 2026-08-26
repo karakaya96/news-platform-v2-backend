@@ -14,7 +14,7 @@ binding = "R2"
 bucket_name = "news-platform-assets"
 
 [vars]
-CORS_ORIGIN = "*"
+CORS_ORIGIN = "https://newshaberglobal.vercel.app,https://newshaberglobal.com,https://www.newshaberglobal.com"
 VAPID_PUBLIC_KEY = "BNYdKHx03KAHFFZEdlUfYaMQ9pI3aMDJfLmb8HVCEc02n-ImgqP6x1dJXLpSNZTg3O_ZO6tMGgW29U9LUDZ_QEs"
 VAPID_SUBJECT = "mailto:admin@newsplatform.com"
 GMAIL_FROM_EMAIL = "newshaberglobal@gmail.com"
