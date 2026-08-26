@@ -82,9 +82,18 @@ export class GmailService {
         }
       );
 
+      const responseText = await res.text();
+
       if (!res.ok) {
-        const err = await res.text();
-        return { success: false, error: `Gmail API hatası: ${res.status} - ${err}` };
+        return { success: false, error: `Gmail API hatası: ${res.status} - ${responseText}` };
+      }
+
+      // Parse response to get message ID
+      try {
+        const responseData = JSON.parse(responseText) as { id?: string; threadId?: string };
+        console.log(`Gmail: Email sent successfully. Message ID: ${responseData.id}, Thread ID: ${responseData.threadId}, To: ${params.to}`);
+      } catch {
+        console.log(`Gmail: Email sent. Response: ${responseText}`);
       }
 
       return { success: true };
