@@ -8,7 +8,7 @@ export class AuthService {
     email: string,
     password: string,
     jwtSecret: string
-  ): Promise<{ user: Omit<User, 'password_hash'>; token: string } | null> {
+  ): Promise<{ user: Omit<User, 'password_hash'> & { avatarUrl?: string | null }; token: string } | null> {
     const user = await this.db
       .prepare('SELECT * FROM users WHERE email = ?')
       .bind(email)
@@ -34,7 +34,7 @@ export class AuthService {
     };
   }
 
-  async getProfile(userId: number): Promise<Omit<User, 'password_hash'> | null> {
+  async getProfile(userId: number): Promise<(Omit<User, 'password_hash'> & { avatarUrl?: string | null }) | null> {
     const user = await this.db
       .prepare(
         'SELECT id, email, name, role, avatar_url, created_at, updated_at FROM users WHERE id = ?'
@@ -56,6 +56,7 @@ export class AuthService {
       name: user.name,
       role: user.role as 'admin' | 'editor' | 'author' | 'viewer',
       avatar_url: user.avatar_url,
+      avatarUrl: user.avatar_url,
       created_at: user.created_at,
       updated_at: user.updated_at,
     };
