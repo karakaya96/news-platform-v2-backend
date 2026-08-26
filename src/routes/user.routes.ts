@@ -26,9 +26,10 @@ userRoutes.get('/', async (c) => {
   const page = Number(c.req.query('page') || '1');
   const limit = Number(c.req.query('limit') || '20');
   const search = c.req.query('search') || undefined;
+  const role = c.req.query('role') || undefined;
 
   const service = new UserService(c.env.DB);
-  const result = await service.list(page, limit, search);
+  const result = await service.list(page, limit, search, role);
 
   return success({
     users: result.users,

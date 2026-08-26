@@ -20,14 +20,23 @@ export class UserService {
     };
   }
 
-  async list(page = 1, limit = 20, search?: string): Promise<{ users: SafeUser[]; total: number }> {
+  async list(page = 1, limit = 20, search?: string, role?: string): Promise<{ users: SafeUser[]; total: number }> {
     const offset = (page - 1) * limit;
     let whereClause = '';
     const bindings: unknown[] = [];
 
+    const conditions: string[] = [];
     if (search) {
-      whereClause = 'WHERE name LIKE ? OR email LIKE ?';
+      conditions.push('(name LIKE ? OR email LIKE ?)');
       bindings.push(`%${search}%`, `%${search}%`);
+    }
+    if (role) {
+      conditions.push('role = ?');
+      bindings.push(role);
+    }
+
+    if (conditions.length > 0) {
+      whereClause = 'WHERE ' + conditions.join(' AND ');
     }
 
     const countResult = await this.db
