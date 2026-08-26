@@ -469,7 +469,7 @@ export class ScraperService {
 
     let inner = '';
     if (type === 'mp4' || type === 'video') {
-      inner = `<video controls playsinline preload="metadata" class="w-full h-full object-contain"><source src="${safeUrl}" type="video/mp4" /></video>`;
+      inner = `<video controls playsinline preload="metadata"><source src="${safeUrl}" type="video/mp4" /></video>`;
     } else if (type === 'youtube') {
       inner = `<iframe src="https://www.youtube.com/embed/${safeUrl}" title="${safeTitle}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen class="w-full h-full" />`;
     } else if (type === 'vimeo') {
