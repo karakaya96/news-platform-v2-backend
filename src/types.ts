@@ -247,6 +247,8 @@ export interface NotificationLog {
 
 export interface NotificationLogWithEmail extends NotificationLog {
   email: string;
+  published_at: string | null;
+  author_name: string | null;
 }
 
 export interface VapidConfig {

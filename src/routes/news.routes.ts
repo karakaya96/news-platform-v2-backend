@@ -165,7 +165,9 @@ async function triggerNotifications(
   siteUrl: string,
   gmailConfig: { clientId: string; clientSecret: string; refreshToken: string; fromEmail: string },
   vapidPublicKey: string,
-  vapidPrivateKey: string
+  vapidPrivateKey: string,
+  publishedAt?: string | null,
+  authorName?: string | null
 ) {
   const notifEnabledRow = await db.prepare("SELECT value FROM settings WHERE key = 'notifications_enabled'")
     .first<{ value: string }>();
@@ -220,6 +222,9 @@ async function triggerNotifications(
             articleUrl: `${siteUrl}/news/${slug}`,
             siteUrl,
             unsubscribeUrl,
+            category: categorySlug,
+            publishedAt,
+            authorName,
           });
           const result = await gmailService.sendEmail({
             to: sub.email,
@@ -397,7 +402,9 @@ newsRoutes.post('/', authMiddleware, async (c) => {
       siteUrl,
       gmailConfig,
       c.env.VAPID_PUBLIC_KEY,
-      c.env.VAPID_PRIVATE_KEY
+      c.env.VAPID_PRIVATE_KEY,
+      news.publishedAt,
+      undefined
     );
   }
 
@@ -461,7 +468,9 @@ newsRoutes.put('/:id', authMiddleware, async (c) => {
       siteUrl,
       gmailConfig,
       c.env.VAPID_PUBLIC_KEY,
-      c.env.VAPID_PRIVATE_KEY
+      c.env.VAPID_PRIVATE_KEY,
+      news.publishedAt,
+      undefined
     );
   }
 

@@ -303,8 +303,10 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
   } else {
     const pendingEmails = await db
     .prepare(`
-    SELECT nl.*, s.email FROM notification_log nl
+    SELECT nl.*, s.email, n.published_at, u.name as author_name FROM notification_log nl
     JOIN subscriptions s ON nl.subscription_id = s.id
+    LEFT JOIN news n ON nl.news_id = n.id
+    LEFT JOIN users u ON n.author_id = u.id
     WHERE nl.status IN ('pending', 'failed') AND nl.type = 'email'
     ORDER BY nl.created_at ASC LIMIT 10
   `)
@@ -327,6 +329,8 @@ export async function scheduled(_event: CronEvent, env: Bindings, _ctx: unknown)
           articleUrl: notif.url || siteUrl,
           siteUrl,
           unsubscribeUrl,
+          publishedAt: notif.published_at,
+          authorName: notif.author_name,
         });
         const result = await gmailService.sendEmail({
           to: notif.email,
