@@ -467,7 +467,20 @@ export class ScraperService {
     const safeTitle = this.escapeHtmlAttr(video.title);
     const type = this.escapeHtmlAttr(video.type);
 
-    return `<div data-video-embed="" data-video-src="${safeUrl}" data-video-type="${type}" data-video-title="${safeTitle}" class="video-embed-wrapper"></div>`;
+    let inner = '';
+    if (type === 'mp4' || type === 'video') {
+      inner = `<video controls playsinline preload="metadata" class="w-full h-full object-contain"><source src="${safeUrl}" type="video/mp4" /></video>`;
+    } else if (type === 'youtube') {
+      inner = `<iframe src="https://www.youtube.com/embed/${safeUrl}" title="${safeTitle}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen class="w-full h-full" />`;
+    } else if (type === 'vimeo') {
+      inner = `<iframe src="https://player.vimeo.com/video/${safeUrl}" title="${safeTitle}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen class="w-full h-full" />`;
+    } else if (type === 'dailymotion') {
+      inner = `<iframe src="https://www.dailymotion.com/embed/video/${safeUrl}" title="${safeTitle}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen class="w-full h-full" />`;
+    } else {
+      inner = `<iframe src="${safeUrl}" title="${safeTitle}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen class="w-full h-full" />`;
+    }
+
+    return `<div data-video-embed="" data-video-src="${safeUrl}" data-video-type="${type}" data-video-title="${safeTitle}" class="video-embed-wrapper">${inner}</div>`;
   }
 
   // ── Content extraction (preserving HTML) ──
