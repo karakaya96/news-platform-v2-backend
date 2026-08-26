@@ -40,7 +40,10 @@ uploadRoutes.post('/', authMiddleware, async (c) => {
     return error('Invalid file type. Allowed: JPEG, PNG, WebP, GIF', 400);
   }
 
-  const ext = file.name.split('.').pop() || 'jpg';
+  // Safe extension: only allow known image extensions (prevent path traversal)
+  const allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+  const rawExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const ext = allowedExts.includes(rawExt) ? rawExt : 'jpg';
   const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
   const filePath = `uploads/${fileName}`;
 
@@ -93,14 +96,19 @@ uploadRoutes.post('/avatar', authMiddleware, async (c) => {
     return error('Invalid file type. Allowed: JPEG, PNG, WebP', 400);
   }
 
-  const ext = file.name.split('.').pop() || 'jpg';
+  // Safe extension: only allow known image extensions (prevent path traversal)
+  const allowedExts = ['jpg', 'jpeg', 'png', 'webp'];
+  const rawExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const ext = allowedExts.includes(rawExt) ? rawExt : 'jpg';
   const fileName = `avatar-${user.sub}-${Date.now()}.${ext}`;
   const filePath = `avatars/${fileName}`;
 
   const arrayBuffer = await file.arrayBuffer();
   await c.env.R2.put(filePath, arrayBuffer, {
-    httpMetadata: { contentType: file.type },
-    cacheControl: 'public, max-age=31536000',
+    httpMetadata: {
+      contentType: file.type,
+      cacheControl: 'public, max-age=31536000',
+    },
   });
 
   const publicUrl = `${getBaseUrl(c)}/api/media/${filePath}`;

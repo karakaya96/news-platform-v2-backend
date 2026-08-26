@@ -24,13 +24,11 @@ export class AuthService {
       jwtSecret
     );
 
-    const { password_hash, avatar_url, created_at, updated_at, ...userWithoutPassword } = user;
+    const { password_hash: _, ...userWithoutPassword } = user;
     return {
       user: {
         ...userWithoutPassword,
-        avatarUrl: avatar_url,
-        createdAt: created_at,
-        updatedAt: updated_at,
+        role: userWithoutPassword.role as 'admin' | 'editor' | 'author' | 'viewer',
       },
       token,
     };
@@ -56,10 +54,10 @@ export class AuthService {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
-      avatarUrl: user.avatar_url,
-      createdAt: user.created_at,
-      updatedAt: user.updated_at,
+      role: user.role as 'admin' | 'editor' | 'author' | 'viewer',
+      avatar_url: user.avatar_url,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
     };
   }
 

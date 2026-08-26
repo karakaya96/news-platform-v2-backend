@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { settings } from '../db/schema';
-import type { DrizzleD1Database } from '../db';
+import type { Db } from '../db';
 
 export interface SettingsMap {
   [key: string]: string;
@@ -44,7 +44,7 @@ const DEFAULT_SETTINGS: Record<string, { value: string; category: string }> = {
 };
 
 export class SettingsService {
-  constructor(private db: DrizzleD1Database) {}
+  constructor(private db: Db) {}
 
   async getAll(): Promise<Record<string, string>> {
     const rows = await this.db.select().from(settings);

@@ -7,9 +7,13 @@ const dashboardRoutes = new Hono<{ Bindings: Bindings }>();
 
 // GET /api/dashboard/stats - Any authenticated user can view
 dashboardRoutes.get('/stats', authMiddleware, async (c) => {
-  const user = c.get('user');
+  const user = c.get('user') as { role?: string } | undefined;
   if (!user) {
     return error('Unauthorized', 401);
+  }
+  // Only admin, editor can view full dashboard stats
+  if (!['admin', 'editor'].includes(user.role || '')) {
+    return error('Access denied', 403);
   }
 
   const db = c.env.DB;

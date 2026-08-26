@@ -5,6 +5,8 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
+// NOTE: In-memory store Worker instances之间paylaşılmaz.
+// Production'da D1 veya KV kullanılması önerilir.
 const store = new Map<string, RateLimitEntry>();
 
 // Endpoint-specific rate limit configurations

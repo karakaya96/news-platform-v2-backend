@@ -65,8 +65,7 @@ export function securityHeaders(): MiddlewareHandler {
     // DNS Prefetch Control
     c.header('X-DNS-Prefetch-Control', 'off');
 
-    // Remove server header for security
-    c.header('Server', 'NewsHaberGlobal');
+    // Server header kaldırıldı (güvenlik için bilgi sızıntısı engellendi)
   };
 }
 

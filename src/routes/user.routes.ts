@@ -101,6 +101,24 @@ userRoutes.post('/', async (c) => {
   }
 });
 
+// PUT /api/users/profile/update - Update own profile (any authed user)
+// IMPORTANT: This must be before /:id to avoid matching "profile" as an id
+userRoutes.put('/profile/update', async (c) => {
+  const user = c.get('user') as { sub?: number } | undefined;
+  if (!user) return error('Unauthorized', 401);
+
+  const body = await c.req.json();
+  const { name, avatar_url, current_password, new_password } = body;
+
+  const service = new UserService(c.env.DB);
+  try {
+    const updated = await service.updateProfile(user.sub!, { name, avatar_url, current_password, new_password });
+    return success(updated);
+  } catch (err) {
+    return error(err instanceof Error ? err.message : 'Failed to update profile', 500);
+  }
+});
+
 // PUT /api/users/:id - Update user (admin only)
 userRoutes.put('/:id', async (c) => {
   const adminErr = requireAdmin(c);

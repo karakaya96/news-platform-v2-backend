@@ -63,7 +63,7 @@ newsRoutes.post('/from-preview', authMiddleware, async (c) => {
     const result = previewNewsSchema.safeParse(body);
 
     if (!result.success) {
-      const firstError = result.error.errors[0];
+      const firstError = result.error.issues[0];
       return error(firstError.message, 400);
     }
 

@@ -52,15 +52,15 @@ commentRoutes.get('/:newsId', async (c) => {
   const comments = await service.getCommentsWithReplies(newsId);
 
   // Map to camelCase for the frontend (public fields only)
-  const mapped = comments.map((c) => ({
-    id: c.id,
-    newsId: c.news_id,
-    parentId: c.parent_id,
-    authorName: c.author_name,
-    content: c.content,
-    status: c.status,
-    createdAt: c.created_at,
-    replyCount: c.reply_count,
+  const mapped = comments.map((comment) => ({
+    id: comment.id,
+    newsId: comment.news_id,
+    parentId: comment.parent_id,
+    authorName: comment.author_name,
+    content: comment.content,
+    status: comment.status,
+    createdAt: comment.created_at,
+    replyCount: comment.reply_count,
   }));
 
   return success(mapped);
@@ -174,20 +174,20 @@ commentRoutes.get('/admin/all', authMiddleware, async (c) => {
   const { comments, total } = await service.getAllComments(page, limit, status, newsId);
 
   // Map to camelCase for the frontend
-  const mapped = comments.map((c) => ({
-    id: c.id,
-    newsId: c.news_id,
-    parentId: c.parent_id,
-    authorName: c.author_name,
-    authorEmail: c.author_email,
-    content: c.content,
-    status: c.status,
-    ipAddress: c.ip_address,
-    createdAt: c.created_at,
-    updatedAt: c.updated_at,
-    replyCount: c.reply_count,
-    newsTitle: c.news_title,
-    newsSlug: c.news_slug,
+  const mapped = comments.map((comment) => ({
+    id: comment.id,
+    newsId: comment.news_id,
+    parentId: comment.parent_id,
+    authorName: comment.author_name,
+    authorEmail: comment.author_email,
+    content: comment.content,
+    status: comment.status,
+    ipAddress: comment.ip_address,
+    createdAt: comment.created_at,
+    updatedAt: comment.updated_at,
+    replyCount: comment.reply_count,
+    newsTitle: comment.news_title,
+    newsSlug: comment.news_slug,
   }));
 
   return paginated(mapped, total, page, limit);

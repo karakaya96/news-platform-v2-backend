@@ -4,6 +4,11 @@ import { categories, news, newsTags, tags, users } from '../db/schema';
 import { turkeyNowISO, turkeyNowSQL } from '../utils/time';
 import { generateSlug } from '../utils/validation';
 
+// Escape LIKE wildcard characters to prevent LIKE injection
+function escapeLike(str: string): string {
+  return str.replace(/[%_]/g, '\\$&');
+}
+
 // Type for news with relations
 interface NewsWithRelations {
   id: number;
@@ -165,7 +170,7 @@ export class NewsService {
     }
 
     if (search) {
-      const searchTerm = `%${search}%`;
+      const searchTerm = `%${escapeLike(search)}%`;
       conditions.push(
         or(
           like(news.title, searchTerm),

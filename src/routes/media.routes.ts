@@ -31,7 +31,7 @@ mediaRoutes.get('/*', async (c) => {
   headers.set('Content-Length', String(object.size));
 
   // R2 object.body zaten ReadableStream, doğrudan Response'a ver
-  return new Response(object.body, {
+  return new Response(object.body as ReadableStream, {
     status: 200,
     headers,
   });

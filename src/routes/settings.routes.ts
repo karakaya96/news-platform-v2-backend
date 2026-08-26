@@ -31,9 +31,13 @@ settingsRoutes.get('/public/all', async (c) => {
   }
 });
 
-// Get all settings (admin)
+// Get all settings (admin only)
 settingsRoutes.get('/', authMiddleware, async (c) => {
   try {
+    const user = c.get('user') as { role?: string } | undefined;
+    if (!user || user.role !== 'admin') {
+      return error('Admin access required', 403);
+    }
     const db = createDb(c.env.DB);
     const service = new SettingsService(db);
     const settings = await service.getAll();
@@ -56,9 +60,13 @@ settingsRoutes.get('/:category', authMiddleware, async (c) => {
   }
 });
 
-// Update settings (admin)
+// Update settings (admin only)
 settingsRoutes.put('/', authMiddleware, async (c) => {
   try {
+    const user = c.get('user') as { role?: string } | undefined;
+    if (!user || user.role !== 'admin') {
+      return error('Admin access required', 403);
+    }
     const body = await c.req.json();
     const db = createDb(c.env.DB);
     const service = new SettingsService(db);
@@ -69,9 +77,13 @@ settingsRoutes.put('/', authMiddleware, async (c) => {
   }
 });
 
-// Update single setting (admin)
+// Update single setting (admin only)
 settingsRoutes.put('/:key', authMiddleware, async (c) => {
   try {
+    const user = c.get('user') as { role?: string } | undefined;
+    if (!user || user.role !== 'admin') {
+      return error('Admin access required', 403);
+    }
     const key = c.req.param('key');
     const body = await c.req.json();
     const db = createDb(c.env.DB);
