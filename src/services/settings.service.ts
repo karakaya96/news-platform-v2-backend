@@ -40,7 +40,7 @@ const DEFAULT_SETTINGS: Record<string, { value: string; category: string }> = {
 
   // Notifications
   'notifications_enabled': { value: 'true', category: 'notifications' },
-  'notifications_email_enabled': { value: 'false', category: 'notifications' },
+  'notifications_email_enabled': { value: 'true', category: 'notifications' },
 };
 
 export class SettingsService {
